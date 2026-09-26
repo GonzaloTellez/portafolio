@@ -19,7 +19,7 @@ page = f'''<!doctype html>
 html,body{{margin:0;height:100%;overflow:hidden;background:#F1F2F4}}
 #app{{position:fixed;inset:0;overflow:hidden}}
 #stage{{position:absolute;left:0;top:0;transform-origin:0 0}}
-.f{{position:absolute;box-sizing:border-box;margin:0;pointer-events:auto}}.pe0{{pointer-events:none}}
+.f{{position:absolute;box-sizing:border-box;margin:0;pointer-events:auto}}.pe0{{pointer-events:none}}.gone,.gone *{{pointer-events:none!important}}
 .t{{white-space:normal;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}}
 img.f{{display:block;user-select:none;-webkit-user-drag:none}}
 .scr{{scrollbar-width:none;overscroll-behavior:contain}}.scr::-webkit-scrollbar{{display:none}}

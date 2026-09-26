@@ -100,7 +100,14 @@ def pack(i, modes=False):
             gen.CUR_MODE[0] = m
             h = render(n, b['x'], b['y'], root=True)
             gen.CUR_MODE[0] = None
-            if h.replace('_' + m, '') != base: out[m] = h
+            # distinto si cambia el HTML o el contenido de algún SVG de ese modo
+            diff = h.replace('_' + m, '') != base
+            if not diff:
+                import re as _r
+                for f in set(_r.findall(r'a/([^"]+_' + m + r'\.svg)', h)):
+                    fa, fb = os.path.join(OUT, 'a', f), os.path.join(OUT, 'a', f.replace('_' + m, ''))
+                    if not os.path.exists(fb) or open(fa, 'rb').read() != open(fb, 'rb').read(): diff = True; break
+            if diff: out[m] = h
     return {'html': render(n, b['x'], b['y'], root=True), 'm': out, 'mode': mode_of(i), 'w': b['width'], 'h': b['height'], 'name': n['name'],
             'bg': n.get('overlayBackground'), 'pos': n.get('overlayPositionType'),
             'close': n.get('overlayBackgroundInteraction'), 'set': META.get(i, {}).get('componentSetId')}

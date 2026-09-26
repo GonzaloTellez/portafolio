@@ -109,7 +109,7 @@
   }
   /* reemplaza oldEl por newEl con la transición de Figma */
   function swap(oldEl,newEl,t,onDone,pre,opts){
-    var par=oldEl.parentNode;oldEl._next=newEl;oldEl._leaving=true;
+    var par=oldEl.parentNode;oldEl._next=newEl;oldEl._leaving=true;oldEl.classList.add('gone');
     // dentro de un auto layout, el estado que sale deja de ocupar lugar: queda encima, en su misma posición
     if(oldEl.style.position==='relative'){var L=oldEl.offsetLeft,Tp=oldEl.offsetTop;oldEl.style.position='absolute';oldEl.style.left=L+'px';oldEl.style.top=Tp+'px';oldEl.style.margin='0';}
     if(!t||t.type==='INSTANT'||!t.ms){par.replaceChild(newEl,oldEl);pre&&pre();onDone&&onDone();return;}
@@ -286,11 +286,11 @@
   /* como en Figma: los textos e imágenes que la instancia cambió respecto de su componente se conservan en la otra variante */
   function overrides(orig,src,k){
     var inst=orig._pristine||orig,dv=B.variants[inst.getAttribute('data-c')];if(!dv)return;
-    var D=html(scaled(dv.html,k)),LI=layers(inst),LD=layers(D),LS=layers(src);
+    var md=(B.screens[cur]||{}).mode,D=html(scaled((dv.m&&dv.m[md])||dv.html,k)),LI=layers(inst),LD=layers(D),LS=layers(src);
     Object.keys(LS).forEach(function(key){var i=LI[key],d=LD[key],s=LS[key];if(!i||!d)return;
-      if(s.classList.contains('t')&&i.classList.contains('t')&&d.classList.contains('t')){if(i.innerHTML!==d.innerHTML)s.innerHTML=i.innerHTML;}
-      else if(s.tagName==='IMG'&&i.tagName==='IMG'&&d.tagName==='IMG'){if(i.getAttribute('src')!==d.getAttribute('src'))s.setAttribute('src',i.getAttribute('src'));}
-      else if(i.style.backgroundImage!==d.style.backgroundImage&&i.style.backgroundImage){s.style.backgroundImage=i.style.backgroundImage;s.style.backgroundSize=i.style.backgroundSize;s.style.backgroundPosition=i.style.backgroundPosition;}
+      if(s.classList.contains('t')&&i.classList.contains('t')&&d.classList.contains('t')){if(i.textContent!==d.textContent)s.innerHTML=i.innerHTML;}
+      else if(s.tagName==='IMG'&&i.tagName==='IMG'&&d.tagName==='IMG'){if(/\.(webp|png|jpe?g)$/.test(i.getAttribute('src'))&&i.getAttribute('src')!==d.getAttribute('src'))s.setAttribute('src',i.getAttribute('src'));}
+      else if(i.style.backgroundImage!==d.style.backgroundImage&&/\.webp/.test(i.style.backgroundImage)){s.style.backgroundImage=i.style.backgroundImage;s.style.backgroundSize=i.style.backgroundSize;s.style.backgroundPosition=i.style.backgroundPosition;}
     });
   }
   function change(el,d,a){

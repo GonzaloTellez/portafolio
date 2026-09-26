@@ -622,7 +622,9 @@ def svg_for(root, fname_out, local=False):
                     for g in geo:
                         rule = 'evenodd' if g.get('windingRule') == 'EVENODD' else 'nonzero'
                         a = op * po
-                        pth = f'<path transform="{smt if gi == 1 else mt}" d="{g["path"]}" fill="{col}" fill-rule="{rule}"' + (f' fill-opacity="{a:.3f}"' if a < .999 else '') + '/>'
+                        # relleno junto a un borde: se ensancha un pelo para que no quede la rendija clara entre ambos
+                        seal = gi == 0 and a >= .999 and not col.startswith('url') and (len(geo) > 1 or (any(q.get('visible', True) is not False for q in (n.get('strokes') or [])) and n.get('strokeGeometry')))
+                        pth = f'<path transform="{smt if gi == 1 else mt}" d="{g["path"]}" fill="{col}" fill-rule="{rule}"' + (f' fill-opacity="{a:.3f}"' if a < .999 else '') + (f' stroke="{col}" stroke-width="0.9" stroke-linejoin="round"' if seal else '') + '/>'
                         # el recorte va en un grupo: así el clipPath usa las coordenadas del SVG, no las del trazo
                         body.append(f'<g{clip}>{pth}</g>' if gi == 1 and clip else pth)
         for c in n.get('children', []): w(c, op)
