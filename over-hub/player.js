@@ -103,7 +103,7 @@
 
   /* reemplaza oldEl por newEl con la transición de Figma */
   function swap(oldEl,newEl,t,onDone,pre){
-    var par=oldEl.parentNode;
+    var par=oldEl.parentNode;oldEl._next=newEl;oldEl._leaving=true;
     if(!t||t.type==='INSTANT'||!t.ms){par.replaceChild(newEl,oldEl);pre&&pre();onDone&&onDone();return;}
     var T=t.ms+'ms '+t.ease;
     if(t.type==='SMART_ANIMATE'){
@@ -229,7 +229,10 @@
     return src;
   }
   function change(el,d,a){
-    var box=target(el,d); if(!box||!box.parentNode) return null;
+    var box=target(el,d); if(!box) return null;
+    while(box._next&&box._next.isConnected)box=box._next;
+    if(!box.parentNode||box._leaving) return null;
+    if(box.getAttribute('data-c')===d) return null;
     if(!box._orig&&!box._pristine){box._pristine=box.cloneNode(true);box._k=scaleOf(box);}
     var src=build(box,d); if(!src) return null;
     // estado anterior intacto, para volver a él al terminar un hover
@@ -251,7 +254,9 @@
     var t=tr(a);
     var osc=old&&old.querySelector('.scr-root'),dx=0,dy=0;
     if(osc){dx=osc.scrollLeft-num(osc.getAttribute('data-sx'));dy=osc.scrollTop-num(osc.getAttribute('data-sy'));}
-    if(old&&old.parentNode){swap(old,nu,t,null,function(){home(nu,dx,dy)});}else{stage.appendChild(nu);home(nu,0,0);}
+    var keepScroll=function(){home(nu,dx,dy);if(!old)return;var os=[].slice.call(old.querySelectorAll('.scr:not(.scr-root)')),ns=[].slice.call(nu.querySelectorAll('.scr:not(.scr-root)'));
+      os.forEach(function(o,i){if(o.scrollTop&&ns[i]&&ns[i].getAttribute('data-n')===o.getAttribute('data-n'))ns[i].scrollTop=o.scrollTop})};
+    if(old&&old.parentNode){swap(old,nu,t,null,keepScroll);}else{stage.appendChild(nu);home(nu,0,0);}
     document.body.style.background=bgOf(nu);
     arm(nu,t?t.ms:0);
   }
@@ -325,7 +330,7 @@
   var hov=null;
   stage.addEventListener('mouseover',function(e){
     var el=find(e.target,'MOUSE_ENTER');
-    if(el&&!(e.relatedTarget&&el.contains(e.relatedTarget)))fire(el,'MOUSE_ENTER',e);
+    if(el&&!list(el,'ON_HOVER').length&&!(e.relatedTarget&&el.contains(e.relatedTarget)))fire(el,'MOUSE_ENTER',e);
     var h=find(e.target,'ON_HOVER');
     if(h&&calm&&calm.isConnected&&(calm.contains(h)||h.contains(calm)))h=null;
     if(h&&(!hov||!hov.el.isConnected||!(hov.el===h||hov.el.contains(h)||h.contains(hov.el)))){
@@ -347,7 +352,8 @@
   });
   function endHover(silent){
     if(!hov)return;var h=hov;hov=null;
-    if(silent||!h.el.isConnected||!h.el._prev)return;
+    // si el propio componente ya volvió (p. ej. con su MOUSE_LEAVE), no se agrega otra copia
+    if(silent||!h.el.isConnected||!h.el._prev||h.el._leaving)return;
     // vuelve a la variante de origen con la misma transición
     var pv=h.el._prev;if(!pv)return;
     var back=pv.cloneNode(true);back._orig=pv._orig;back._pristine=pv._pristine;back._k=pv._k;

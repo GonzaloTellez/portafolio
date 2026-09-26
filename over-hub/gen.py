@@ -453,7 +453,7 @@ def _render(n, ox, oy, root, extra_cls, mine):
             if c.get('layoutPositioning') == 'ABSOLUTE': parts.append(hc); continue
             cb = bb(c)
             grow = c.get('layoutGrow', 0) == 1 or c.get(('layoutSizingHorizontal' if hz else 'layoutSizingVertical')) == 'FILL'
-            big = (cb['width'] if hz else cb['height']) > 300
+            big = 'search' in c['name'].lower()  # la búsqueda cede espacio al expandirse XR; lo demás mantiene su tamaño
             fx = 'flex:1 1 0;min-width:0;min-height:0' if grow else ('flex:0 1 auto;min-width:0' if big else 'flex:none')
             if c.get('layoutAlign') == 'STRETCH': fx += ';align-self:stretch'
             m = re.search(r'data-pad="([\d.-]+)"', hc[:400])
