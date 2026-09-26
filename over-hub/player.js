@@ -104,6 +104,8 @@
   /* reemplaza oldEl por newEl con la transición de Figma */
   function swap(oldEl,newEl,t,onDone,pre){
     var par=oldEl.parentNode;oldEl._next=newEl;oldEl._leaving=true;
+    // dentro de un auto layout, el estado que sale deja de ocupar lugar: queda encima, en su misma posición
+    if(oldEl.style.position==='relative'){var L=oldEl.offsetLeft,Tp=oldEl.offsetTop;oldEl.style.position='absolute';oldEl.style.left=L+'px';oldEl.style.top=Tp+'px';oldEl.style.margin='0';}
     if(!t||t.type==='INSTANT'||!t.ms){par.replaceChild(newEl,oldEl);pre&&pre();onDone&&onDone();return;}
     var T=t.ms+'ms '+t.ease;
     if(t.type==='SMART_ANIMATE'){
@@ -155,6 +157,9 @@
           // cambia la forma: la nueva aparece sobre una copia de la anterior (sin bajón de opacidad)
           var cp=o.cloneNode(true);cp.style.transition='';cp.style.visibility='';cp.removeAttribute('data-id');cp.classList.add('pe0');
           n.parentNode.insertBefore(cp,n);ghosts.push(cp);o.style.visibility='hidden';
+          // la copia vieja acompaña el movimiento (giro, posición, tamaño) mientras se desvanece
+          (function(cp,to){keep.push(function(){cp.style.transition=['left','top','width','height','transform','opacity'].map(function(x){return x+' '+T}).join(',');
+            ['left','top','width','height','transform'].forEach(function(pr){if(to[pr])cp.style.setProperty(pr,to[pr])});cp.style.opacity='0';});})(cp,to);
           var op=to.opacity||'1';n.style.opacity='0';keep.push(function(){n.style.opacity=op;});
         }else if(!same){var op2=to.opacity||'1';n.style.opacity='0';keep.push(function(){n.style.opacity=op2;});}
         keep.push(function(){n.style.transition=PROPS.map(function(x){return x+' '+T}).join(',');PROPS.forEach(function(pr){n.style.setProperty(pr,to[pr])});});

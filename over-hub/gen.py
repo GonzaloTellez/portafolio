@@ -247,6 +247,7 @@ def text_html(n):
 
 # ---------- exportaciones por lote ----------
 SVG_IDS, PNG_IDS = set(), set()
+FINE_IDS = set()
 LOCAL_SVG = {}
 MISSING = []
 
@@ -266,7 +267,9 @@ def plan(n, root=True, fine=False):
         for c in n.get('children', []): plan(c, False, fine)
         return
     if not root and n['type'] != 'TEXT' and svg_ok(n) and (not fine or n['type'] in VEC):
-        SVG_IDS.add(n['id']); return
+        SVG_IDS.add(n['id'])
+        if fine and n['type'] in VEC: FINE_IDS.add(n['id'])
+        return
     for c in n.get('children', []): plan(c, False, fine)
 
 def export(ids, fmt, scale=2):
@@ -301,7 +304,21 @@ def rb(n):
     return n.get('absoluteRenderBounds') or bb(n)
 
 LOCAL = [False]
+def PARENT_OFF(n, ox, oy):
+    P = PARENT.get(n['id'])
+    if not P: return (0, 0)
+    pb = bb(P); return (pb['x'] - ox, pb['y'] - oy)
 def rotated(rt): return abs(rt[0][1]) > 1e-3 or rt[0][0] < 0 or rt[1][1] < 0
+
+def center_tf(rt, w, h, pad=0):
+    """left/top y transform con origen en el centro: así un cambio de giro se anima girando en su sitio."""
+    a, b, c, d = rt[0][0], rt[1][0], rt[0][1], rt[1][1]
+    det = a * d - b * c
+    if det < 0: ang = math.degrees(math.atan2(-b, -a)); sx = -1
+    else: ang = math.degrees(math.atan2(b, a)); sx = 1
+    cx = rt[0][2] + a * w / 2 + c * h / 2; cy = rt[1][2] + b * w / 2 + d * h / 2
+    W, H = w + 2 * pad, h + 2 * pad
+    return cx - W / 2, cy - H / 2, W, H, f'transform-origin:50% 50%;transform:rotate({ang:.2f}deg) scale({sx},1)'
 
 def render(n, ox, oy, root=False, extra_cls=''):
     mine = LOCAL[0]
@@ -319,12 +336,13 @@ def _render(n, ox, oy, root, extra_cls, mine):
     if n['type'] in ('INSTANCE', 'COMPONENT'): attrs += f' data-c="{n.get("componentId", n["id"])}"'
     cls = ('f ' + extra_cls).strip()
     if n['id'] in SVG_IDS:
-        if mine and n.get('relativeTransform') and n.get('size'):
+        if (mine or n['id'] in FINE_IDS) and n.get('relativeTransform') and n.get('size'):
             fn = fname(n['id'] + '_l', 'svg')
             svg_for(n, fn, local=True)
             t = n['relativeTransform']; pad = LOCAL_PAD.get(n['id'], 0)
-            tf = f";transform-origin:{pad}px {pad}px;transform:matrix({t[0][0]:.5f},{t[1][0]:.5f},{t[0][1]:.5f},{t[1][1]:.5f},0,0)" if rotated(t) else ''
-            st = f"left:{t[0][2]-pad:.2f}px;top:{t[1][2]-pad:.2f}px;width:{n['size']['x']+2*pad:.2f}px;height:{n['size']['y']+2*pad:.2f}px{tf}"
+            lx, ly, W, H, tf = center_tf(t, n['size']['x'], n['size']['y'], pad)
+            if not mine: lx += PARENT_OFF(n, ox, oy)[0]; ly += PARENT_OFF(n, ox, oy)[1]
+            st = f"left:{lx:.2f}px;top:{ly:.2f}px;width:{W:.2f}px;height:{H:.2f}px;{tf}"
             op = f";opacity:{n['opacity']:.3f}" if n.get('opacity', 1) < 1 else ''
             return f'<img class="{cls}" {attrs} src="a/{fn}" alt="" style="{st}{op}" draggable="false">'
         fn = fname(n['id'], 'svg')
@@ -345,8 +363,9 @@ def _render(n, ox, oy, root, extra_cls, mine):
     rt = n.get('relativeTransform')
     if mine and rt and n.get('size'):
         # dentro de un padre girado: coordenadas locales de Figma
-        st = [f'left:{rt[0][2]:.2f}px', f'top:{rt[1][2]:.2f}px', f'width:{n["size"]["x"]:.2f}px', f'height:{n["size"]["y"]:.2f}px']
-        if rotated(rt): st.append(f'transform-origin:0 0;transform:matrix({rt[0][0]:.5f},{rt[1][0]:.5f},{rt[0][1]:.5f},{rt[1][1]:.5f},0,0)')
+        lx, ly, W, H, tf = center_tf(rt, n['size']['x'], n['size']['y'])
+        st = [f'left:{lx:.2f}px', f'top:{ly:.2f}px', f'width:{W:.2f}px', f'height:{H:.2f}px']
+        if rotated(rt): st.append(tf)
     elif rt and n.get('size') and rotated(rt) and n['id'] not in SVG_IDS:
         P = PARENT.get(n['id'])
         if True:
@@ -359,8 +378,9 @@ def _render(n, ox, oy, root, extra_cls, mine):
                 lx, ly = NA[0][2] - ox, NA[1][2] - oy
             else:
                 lx, ly = px + rt[0][2], py + rt[1][2]
-            st = [f'left:{lx:.2f}px', f'top:{ly:.2f}px', f'width:{n["size"]["x"]:.2f}px', f'height:{n["size"]["y"]:.2f}px',
-                  f'transform-origin:0 0;transform:matrix({rt[0][0]:.5f},{rt[1][0]:.5f},{rt[0][1]:.5f},{rt[1][1]:.5f},0,0)']
+            M = [[rt[0][0], rt[0][1], lx], [rt[1][0], rt[1][1], ly]]
+            cx_, cy_, W_, H_, tf = center_tf(M, n['size']['x'], n['size']['y'])
+            st = [f'left:{cx_:.2f}px', f'top:{cy_:.2f}px', f'width:{W_:.2f}px', f'height:{H_:.2f}px', tf]
     if n['type'] == 'TEXT':
         s = n.get('style', {})
         st += text_css(s)
