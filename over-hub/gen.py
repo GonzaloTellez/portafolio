@@ -85,7 +85,19 @@ def rgba(c, a=1.0):
     r, g, b = (round(c[k] * 255) for k in 'rgb')
     return f'#{r:02x}{g:02x}{b:02x}' if a >= .999 else f'rgba({r},{g},{b},{a:.3f})'
 
+VARMODES = json.load(open(os.path.join(HERE, 'varmodes.json'))) if os.path.exists(os.path.join(HERE, 'varmodes.json')) else {}
+CUR_MODE = [None]
+def moded(p):
+    """Si el color viene de una variable de Figma, usa su valor en el modo que se está generando."""
+    bv = (p.get('boundVariables') or {}).get('color')
+    if not (CUR_MODE[0] and bv and p.get('color')): return p
+    hx = VARMODES.get(bv['id'], {}).get(CUR_MODE[0])
+    if not hx: return p
+    c = dict(p['color']); c['r'], c['g'], c['b'] = (int(hx[i:i+2], 16) / 255 for i in (1, 3, 5))
+    q = dict(p); q['color'] = c; return q
+
 def paint_css(p, n):
+    p = moded(p)
     t = p['type']; op = p.get('opacity', 1)
     if t == 'SOLID': return rgba(p['color'], op)
     if t.startswith('GRADIENT_LINEAR'):
@@ -199,6 +211,7 @@ def text_css(st, n=None):
     return s
 
 def text_color(fl):
+    fl = [moded(p) for p in (fl or [])]
     for p in fl or []:
         if p.get('visible', True) is not False and p['type'] == 'SOLID': return rgba(p['color'], p.get('opacity', 1))
     return None
@@ -292,6 +305,7 @@ def export(ids, fmt, scale=2):
     return got
 
 def fname(i, fmt):
+    if CUR_MODE[0]: i = i + '_' + CUR_MODE[0]
     return 'n' + re.sub(r'[^0-9A-Za-z]+', '_', i) + ('.svg' if fmt == 'svg' else '.webp')
 
 import urllib.parse
@@ -346,13 +360,13 @@ def _render(n, ox, oy, root, extra_cls, mine):
             op = f";opacity:{n['opacity']:.3f}" if n.get('opacity', 1) < 1 else ''
             return f'<img class="{cls}" {attrs} src="a/{fn}" alt="" style="{st}{op}" draggable="false">'
         fn = fname(n['id'], 'svg')
-        r = LOCAL_SVG.get(n['id'])
+        r = LOCAL_SVG.get((n['id'], CUR_MODE[0]))
         if not r:
             if n.get('fillGeometry') is not None or any('fillGeometry' in m for m in sub(n)):
                 r = svg_for(n, fn)
             else:
                 MISSING.append(n['id']); return ''
-            LOCAL_SVG[n['id']] = r
+            LOCAL_SVG[(n['id'], CUR_MODE[0])] = r
         st = f"left:{r['x']-ox:.2f}px;top:{r['y']-oy:.2f}px;width:{r['width']:.2f}px;height:{r['height']:.2f}px"
         attrs += f' data-bx="{x:.2f}" data-by="{y:.2f}" data-pad="{b["x"]-r["x"]:.2f}"'
         op = f";opacity:{n['opacity']:.3f}" if n.get('opacity', 1) < 1 else ''
@@ -540,6 +554,7 @@ def compute_abs(root):
     w(root, A)
 
 def _paint_svg(p, defs, gid):
+    p = moded(p)
     op = p.get('opacity', 1)
     if p['type'] == 'SOLID':
         c = p['color']; return f"rgb({round(c['r']*255)},{round(c['g']*255)},{round(c['b']*255)})", op * c.get('a', 1)

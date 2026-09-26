@@ -83,22 +83,39 @@ print('svg', len(SVG_IDS), flush=True)
 for r in allroots:
     for m in sub(IDX[r]): gen.ROOT_OF.setdefault(m['id'], r)
 
-def pack(i):
+def mode_of(i):
+    p = IDX.get(i)
+    while p is not None:
+        if p['type'] == 'SECTION':
+            nm = p['name']; return 'dim' if 'Dim' in nm else 'dark' if 'Dark' in nm else 'light'
+        p = gen.PARENT.get(p['id'])
+    return 'light'
+
+def pack(i, modes=False):
     n = IDX[i]; b = bb(n)
-    return {'html': render(n, b['x'], b['y'], root=True), 'w': b['width'], 'h': b['height'], 'name': n['name'],
+    out = {}
+    if modes:
+        base = render(n, b['x'], b['y'], root=True)
+        for m in ('dim', 'dark'):
+            gen.CUR_MODE[0] = m
+            h = render(n, b['x'], b['y'], root=True)
+            gen.CUR_MODE[0] = None
+            if h.replace('_' + m, '') != base: out[m] = h
+    return {'html': render(n, b['x'], b['y'], root=True), 'm': out, 'mode': mode_of(i), 'w': b['width'], 'h': b['height'], 'name': n['name'],
             'bg': n.get('overlayBackground'), 'pos': n.get('overlayPositionType'),
             'close': n.get('overlayBackgroundInteraction'), 'set': META.get(i, {}).get('componentSetId')}
 
 build = {
     'start': START,
     'screens': {i: pack(i) for i in screens},
-    'variants': {i: pack(i) for i in variants},
+    'variants': {i: pack(i, True) for i in variants},
     'overlays': {i: pack(i) for i in overlays},
     'inter': INTER,
     'inst': INST,
     'sets': {k: v.get('componentSetId') for k, v in META.items()},
     'csize': {c: [bb(IDX[c])['width'], bb(IDX[c])['height']] for c in set(INST.values()) | set(variants) if c in IDX},
     'fonts': sorted(FONTS),
+    'icon': {'light': '#000000', **{m: gen.VARMODES.get('VariableID:368:1386', {}).get(m, '#000000') for m in ('dim', 'dark')}},
 }
 json.dump(build, open(os.path.join(OUT, 'build.json'), 'w'))
 print('missing svgs', len(gen.MISSING))
