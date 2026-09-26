@@ -162,10 +162,12 @@
           var fc=getComputedStyle(o).backgroundColor,tc=n.style.backgroundColor;
           if(tc&&fc!==tc){n.style.backgroundColor=fc;keep.push(function(){n.style.transition='transform '+T+',background-color '+T;n.style.backgroundColor=tc;});}
         }else if(o!==oldEl&&!sameLook(o,n)){
+          // la copia vieja va en el árbol nuevo, justo detrás de la capa nueva: respeta el orden de Figma
           var cp=o.cloneNode(true);cp.removeAttribute('data-id');cp.classList.add('pe0');cp.style.visibility='visible';cp.style.transformOrigin='0 0';
-          o.parentNode.insertBefore(cp,o.nextSibling);ghosts.push(cp);
+          cp.style.left=n.style.left;cp.style.top=n.style.top;cp.style.transform='translate('+dx+'px,'+dy+'px)';
+          n.parentNode.insertBefore(cp,n);ghosts.push(cp);
           var op0=n.style.opacity||'1';n.style.opacity='0';
-          keep.push(function(){cp.style.transition='transform '+T+',opacity '+HALF;cp.style.transform='translate('+(-dx)+'px,'+(-dy)+'px) scale('+(1/kx)+','+(1/ky)+')';cp.style.opacity='0';
+          keep.push(function(){cp.style.transition='transform '+T+',opacity '+HALF;cp.style.transform='translate(0px,0px) scale('+(1/kx)+','+(1/ky)+')';cp.style.opacity='0';
             n.style.transition='transform '+T+',opacity '+T;n.style.opacity=op0;});
         }
         flipped.push(n);return false;
@@ -414,7 +416,7 @@
   var ICONS=['light mode','dim','dark'];
   function menuOf(el){var m=el.closest&&el.closest('[data-n$=" select"]');return m&&ICONS.indexOf(el.getAttribute('data-n'))>=0?m:null}
   var ALTMOON=null;
-  function altMoon(){if(ALTMOON===null){var hv=html(B.variants['587:4555'].html),h2=hv&&hv.querySelector('img[data-n="dim 2"]');ALTMOON=h2?h2.getAttribute('src'):''}return ALTMOON}
+  function altMoon(){if(ALTMOON===null&&B.altmoon)ALTMOON=B.altmoon;if(ALTMOON===null){var hv=html(B.variants['587:4555'].html),h2=hv&&hv.querySelector('img[data-n="dim 2"]');ALTMOON=h2?h2.getAttribute('src'):''}return ALTMOON}
   stage.addEventListener('mouseover',function(e){var d=e.target.closest&&e.target.closest('.micon[data-n="dim"]');if(!d||d._alt||(e.relatedTarget&&d.contains(e.relatedTarget)))return;
     var m=d.querySelector('img[data-n="dim 2"]');if(!m||!altMoon())return;d._alt=true;
     // la luna con el hueco amplio, pintada con el color de ícono del modo actual (máscara)

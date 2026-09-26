@@ -8,6 +8,10 @@ fams = {}
 for fam, w, it in B['fonts']:
     fams.setdefault(fam, set()).add(int(w))
 q = '&'.join('family=' + f.replace(' ', '+') + ':wght@' + ';'.join(str(w) for w in sorted(ws)) for f, ws in sorted(fams.items()))
+# la luna del hover de dim se usa como máscara CSS: va incrustada para que funcione también abriendo el archivo local
+import re as _re0, base64 as _b64
+_m = _re0.search(r'data-n="dim 2" src="([^"]+)"', B['variants'].get('587:4555', {}).get('html', ''))
+if _m: B['altmoon'] = 'data:image/svg+xml;base64,' + _b64.b64encode(open(os.path.join(OUT, _m.group(1)), 'rb').read()).decode()
 data = json.dumps(B, separators=(',', ':')).replace('</', '<\\/')
 page = f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
