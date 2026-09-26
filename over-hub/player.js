@@ -101,18 +101,36 @@
   // valor actual en pantalla (sirve si la capa aún está a mitad de otra transición)
   function live(el){var s=el.style,c=getComputedStyle(el),o={};PROPS.forEach(function(p){o[p]=s.getPropertyValue(p)?c.getPropertyValue(p):''});return o}
 
+  // hijas de auto layout -> posición absoluta en su lugar actual; devuelve cómo restaurarlas
+  function absolutize(root){
+    var els=[].filter.call(root.querySelectorAll('.f'),function(x){return x.style.position==='relative'}),m=els.map(function(x){return [x,x.offsetLeft,x.offsetTop,x.offsetWidth,x.offsetHeight,x.style.cssText]});
+    m.forEach(function(q){var x=q[0];x.style.position='absolute';x.style.left=q[1]+'px';x.style.top=q[2]+'px';x.style.width=q[3]+'px';x.style.height=q[4]+'px';x.style.flex='none';x.style.margin='0'});
+    return m.map(function(q){return [q[0],q[5]]});
+  }
   /* reemplaza oldEl por newEl con la transición de Figma */
-  function swap(oldEl,newEl,t,onDone,pre){
+  function swap(oldEl,newEl,t,onDone,pre,opts){
     var par=oldEl.parentNode;oldEl._next=newEl;oldEl._leaving=true;
     // dentro de un auto layout, el estado que sale deja de ocupar lugar: queda encima, en su misma posición
     if(oldEl.style.position==='relative'){var L=oldEl.offsetLeft,Tp=oldEl.offsetTop;oldEl.style.position='absolute';oldEl.style.left=L+'px';oldEl.style.top=Tp+'px';oldEl.style.margin='0';}
     if(!t||t.type==='INSTANT'||!t.ms){par.replaceChild(newEl,oldEl);pre&&pre();onDone&&onDone();return;}
     var T=t.ms+'ms '+t.ease;
+    // la forma vieja se va en la segunda mitad, cuando la nueva ya casi cubre: sin bajón de opacidad
+    var HALF=Math.round(t.ms/2)+'ms ease-in '+Math.round(t.ms/2)+'ms';
     if(t.type==='SMART_ANIMATE'){
-      var A=layers(oldEl),Bm=layers(newEl), keep=[];
+      var A=layers(oldEl),Bm=layers(newEl), keep=[], ghosts=[];
       // el estado viejo queda detrás para desvanecer lo que desaparece
       par.insertBefore(newEl,oldEl.nextSibling);pre&&pre();
       oldEl.style.pointerEvents='none';
+      // auto layout congelado: cada capa se interpola desde su posición real, sin que el flex la recoloque
+      var saved=absolutize(newEl);absolutize(oldEl);
+      if(opts&&opts.over){
+        // en un cambio de variante, lo que desaparece se desvanece por encima del fondo nuevo
+        var shell=oldEl.cloneNode(false);shell.removeAttribute('data-id');shell.removeAttribute('data-c');shell.classList.add('pe0');
+        par.insertBefore(shell,newEl);par.insertBefore(oldEl,newEl.nextSibling);
+        oldEl.style.background='none';oldEl.style.boxShadow='none';oldEl.style.filter='none';
+        ghosts.push(shell);shell.style.transition='opacity '+T;
+        keep.push(function(){shell.style.opacity='0'});
+      }
       var pairs=[];
       Object.keys(Bm).forEach(function(k){
         var n=Bm[k],o=A[k];
@@ -123,7 +141,7 @@
       pairs.unshift([oldEl,newEl]);
       // capas que solo cambian de escala (p. ej. la interfaz que se aleja en AR): se animan como un todo
       // con transform, para que textos e íconos escalen juntos; sus hijas no se interpolan por separado
-      var flipped=[],ghosts=[];
+      var flipped=[];
       pairs=pairs.filter(function(p){
         var o=p[0],n=p[1];
         if(flipped.some(function(f){return f.contains(n)}))return false;
@@ -137,17 +155,30 @@
         if(o!==oldEl)o.style.visibility='hidden';
         n.style.transformOrigin='0 0';n.style.transform='translate('+dx+'px,'+dy+'px) scale('+kx+','+ky+')';
         keep.push(function(){n.style.transition='transform '+T;n.style.transform='';});
+        // si además cambia de aspecto (color, ícono), la versión vieja acompaña el mismo movimiento y se desvanece
+        var srcs=function(e){return e.querySelectorAll('img').length+'|'+e.querySelectorAll('*').length};
+        if(o!==oldEl&&!sameLook(o,n)&&srcs(o)===srcs(n)&&n.style.backgroundColor&&getComputedStyle(o).backgroundColor!==n.style.backgroundColor){
+          // mismas formas, otro color: el color se interpola durante el mismo movimiento
+          var fc=getComputedStyle(o).backgroundColor,tc=n.style.backgroundColor;
+          if(tc&&fc!==tc){n.style.backgroundColor=fc;keep.push(function(){n.style.transition='transform '+T+',background-color '+T;n.style.backgroundColor=tc;});}
+        }else if(o!==oldEl&&!sameLook(o,n)){
+          var cp=o.cloneNode(true);cp.removeAttribute('data-id');cp.classList.add('pe0');cp.style.visibility='visible';cp.style.transformOrigin='0 0';
+          o.parentNode.insertBefore(cp,o.nextSibling);ghosts.push(cp);
+          var op0=n.style.opacity||'1';n.style.opacity='0';
+          keep.push(function(){cp.style.transition='transform '+T+',opacity '+HALF;cp.style.transform='translate('+(-dx)+'px,'+(-dy)+'px) scale('+(1/kx)+','+(1/ky)+')';cp.style.opacity='0';
+            n.style.transition='transform '+T+',opacity '+T;n.style.opacity=op0;});
+        }
         flipped.push(n);return false;
       });
       keep=keep.filter(function(){return true});
       pairs.forEach(function(p){
         var o=p[0],n=p[1],from=live(o),to=snap(n);
-        var same=o.tagName===n.tagName&&(o.tagName!=='IMG'||o.getAttribute('src')===n.getAttribute('src'));
+        var morph=false,same=o.tagName===n.tagName&&(o.tagName!=='IMG'||o.getAttribute('src')===n.getAttribute('src'));
         if(!same&&o.tagName==='IMG'&&n.tagName==='IMG'){
           // misma figura a otra escala (p. ej. botones que se encogen): se anima el tamaño, sin fundido
           var ra=num(o.style.width)/Math.max(1,num(o.style.height)),rb=num(n.style.width)/Math.max(1,num(n.style.height));
           var rs=num(n.style.width)/Math.max(1,num(o.style.width));
-          if(Math.abs(ra-rb)<0.1*rb&&Math.abs(rs-1)>0.05)same=true;
+          if(Math.abs(ra-rb)<0.1*rb&&Math.abs(rs-1)>0.05)morph=true;
         }
         if(same&&o!==oldEl) o.style.visibility='hidden';
         // si la capa venía invisible, su color no se interpola (evita destellos grises)
@@ -158,7 +189,7 @@
           var cp=o.cloneNode(true);cp.style.transition='';cp.style.visibility='';cp.removeAttribute('data-id');cp.classList.add('pe0');
           n.parentNode.insertBefore(cp,n);ghosts.push(cp);o.style.visibility='hidden';
           // la copia vieja acompaña el movimiento (giro, posición, tamaño) mientras se desvanece
-          (function(cp,to){keep.push(function(){cp.style.transition=['left','top','width','height','transform','opacity'].map(function(x){return x+' '+T}).join(',');
+          (function(cp,to){keep.push(function(){cp.style.transition=['left','top','width','height','transform'].map(function(x){return x+' '+T}).join(',')+',opacity '+HALF;
             ['left','top','width','height','transform'].forEach(function(pr){if(to[pr])cp.style.setProperty(pr,to[pr])});cp.style.opacity='0';});})(cp,to);
           var op=to.opacity||'1';n.style.opacity='0';keep.push(function(){n.style.opacity=op;});
         }else if(!same){var op2=to.opacity||'1';n.style.opacity='0';keep.push(function(){n.style.opacity=op2;});}
@@ -167,7 +198,7 @@
       reflow(newEl);
       keep.forEach(function(f){f()});
       oldEl.style.transition='opacity '+T;oldEl.style.opacity='0';
-      after(t.ms,function(){ghosts.forEach(function(g){g.remove()});oldEl.remove();Object.keys(Bm).forEach(function(k){Bm[k].style.transition=''});flipped.forEach(function(f){f.style.transformOrigin=''});newEl.style.transition='';onDone&&onDone();});
+      after(t.ms,function(){ghosts.forEach(function(g){g.remove()});oldEl.remove();Object.keys(Bm).forEach(function(k){Bm[k].style.transition=''});flipped.forEach(function(f){f.style.transformOrigin=''});saved.forEach(function(x){x[0].style.cssText=x[1]});newEl.style.transition='';onDone&&onDone();});
       return;
     }
     // DISSOLVE (y el resto): fundido cruzado
@@ -212,6 +243,9 @@
     return el.closest('[data-c]');
   }
   function num(v){return parseFloat(v)||0}
+  // mismo contenido visual (mismas imágenes y colores), aunque cambien tamaños
+  function sameLook(a,b){var f=function(e){return [].map.call(e.querySelectorAll('img'),function(i){return i.getAttribute('src')}).join()+'|'+(e.innerHTML.match(/(background-color|color):[^;"]+/g)||[]).join()};return f(a)===f(b)}
+  function getComputedRGB(c){var d=document.createElement('i');d.style.color=c;document.body.appendChild(d);var r=getComputedStyle(d).color.match(/[\d.]+/g);d.remove();return r&&r.map(Number)}
   function pos(el){return {x:el.dataset.bx!=null?num(el.dataset.bx):num(el.style.left),y:el.dataset.by!=null?num(el.dataset.by):num(el.style.top)}}
   // la instancia puede estar escalada (p. ej. en VR la interfaz es más chica): la variante se escala igual
   function scaleOf(box){var c=box.getAttribute('data-c'),cs=B.csize[c];if(!cs)return 1;var w=num(box.dataset.bw||box.style.width),k=w/cs[0];return Math.abs(k-1)<0.02?1:k}
@@ -220,6 +254,7 @@
     var orig=box._orig||box, src, k=box._k||scaleOf(box);
     if(orig.getAttribute('data-c')===d){src=orig._pristine.cloneNode(true);}
     else{var v=B.variants[d];if(!v)return null;var md=(B.screens[cur]||{}).mode;src=html(scaled((v.m&&v.m[md])||v.html,k));}
+    overrides(orig,src,k);
     var P=pos(box);
     // la variante toma la esquina de la instancia, como en Figma
     src.style.left=P.x+'px';src.style.top=P.y+'px';
@@ -230,10 +265,36 @@
     for(var i=0;resized&&box.style.position!=='relative'&&i<bc.length;i++){var nm=bc[i].getAttribute('data-n');if(!nm)continue;
       var m=sc.filter(function(x){return x.getAttribute('data-n')===nm&&Math.abs(num(x.style.width)-num(bc[i].style.width))<2&&Math.abs(num(x.style.height)-num(bc[i].style.height))<2})[0];
       if(m){var pb=pos(bc[i]),pm=pos(m);src.style.left=(P.x+pb.x-pm.x)+'px';src.style.top=(P.y+pb.y-pm.y)+'px';break;}}
+    // variante translúcida sobre un fondo sólido (p. ej. el hover negro al 50 %): se compone sobre el color base
+    // para que el botón se oscurezca en lugar de volverse gris al quedar solo
+    var so=parseFloat(src.style.opacity),base=((orig._pristine||orig).style.backgroundColor||'');
+    if(so<1&&src.style.backgroundColor&&/rgb/.test(base)){
+      var c1=base.match(/[\d.]+/g).map(Number),c2=getComputedRGB(src.style.backgroundColor);
+      if(c2){src.style.backgroundColor='rgb('+[0,1,2].map(function(i){return Math.round(c1[i]*(1-so)+c2[i]*so)}).join(',')+')';src.style.opacity='';}
+    }
     src._orig=orig;src._k=k;
     return src;
   }
+  // variante puente (sale sola en ~1 ms hacia otra, con un cambio casi instantáneo): se va directo al destino
+  function hop(d){
+    for(var i=0;i<4;i++){var r=(B.inter[d]||[]).filter(function(x){return x.trigger.type==='AFTER_TIMEOUT'&&(x.trigger.timeout||0)<0.02})[0];if(!r)break;
+      var acts=r.actions||[],nx=acts.filter(function(a){return a.type==='NODE'&&a.navigation==='CHANGE_TO'})[0];
+      if(!nx||acts.some(function(a){return a!==nx&&a.type!=='SET_VARIABLE'})||((nx.transition||{}).duration||0)>0.05)break;
+      acts.forEach(function(a){if(a.type==='SET_VARIABLE')VARS[a.variableId]=val(a.variableValue)});d=nx.destinationId;}
+    return d;
+  }
+  /* como en Figma: los textos e imágenes que la instancia cambió respecto de su componente se conservan en la otra variante */
+  function overrides(orig,src,k){
+    var inst=orig._pristine||orig,dv=B.variants[inst.getAttribute('data-c')];if(!dv)return;
+    var D=html(scaled(dv.html,k)),LI=layers(inst),LD=layers(D),LS=layers(src);
+    Object.keys(LS).forEach(function(key){var i=LI[key],d=LD[key],s=LS[key];if(!i||!d)return;
+      if(s.classList.contains('t')&&i.classList.contains('t')&&d.classList.contains('t')){if(i.innerHTML!==d.innerHTML)s.innerHTML=i.innerHTML;}
+      else if(s.tagName==='IMG'&&i.tagName==='IMG'&&d.tagName==='IMG'){if(i.getAttribute('src')!==d.getAttribute('src'))s.setAttribute('src',i.getAttribute('src'));}
+      else if(i.style.backgroundImage!==d.style.backgroundImage&&i.style.backgroundImage){s.style.backgroundImage=i.style.backgroundImage;s.style.backgroundSize=i.style.backgroundSize;s.style.backgroundPosition=i.style.backgroundPosition;}
+    });
+  }
   function change(el,d,a){
+    d=hop(d);
     var box=target(el,d); if(!box) return null;
     while(box._next&&box._next.isConnected)box=box._next;
     if(!box.parentNode||box._leaving) return null;
@@ -242,7 +303,7 @@
     var src=build(box,d); if(!src) return null;
     // estado anterior intacto, para volver a él al terminar un hover
     var prev=box.cloneNode(true);prev._orig=box._orig;prev._pristine=box._pristine;prev._k=box._k;src._prev=prev;
-    var t=box._instant?null:tr(a);swap(box,src,t);
+    var t=box._instant?null:tr(a);swap(box,src,t,null,null,{over:1});
     arm(src,t?t.ms:0);
     return src;
   }
@@ -273,6 +334,8 @@
     var t=tr(a);
     var lay=document.createElement('div');lay.className='ovl';
     var bg=o.bg&&o.bg.type==='SOLID_COLOR'&&o.bg.color;
+    // sin dato de fondo en el archivo: el oscurecido que se ve en el prototipo de Figma
+    if(!o.bg)lay.style.background='rgba(16,15,10,.38)';
     if(bg)lay.style.background='rgba('+Math.round(bg.r*255)+','+Math.round(bg.g*255)+','+Math.round(bg.b*255)+','+(bg.a==null?1:bg.a)+')';
     var el=html(o.html);el.style.left='0px';el.style.top='0px';
     var box=document.createElement('div');box.className='ovb';box.style.width=o.w+'px';box.style.height=o.h+'px';
@@ -352,7 +415,7 @@
     var bg=[].slice.call(menu.children).filter(function(x){return /background/i.test(x.getAttribute('data-n')||'')})[0];
     var E='cubic-bezier(.22,1,.36,1)';
     el.classList.remove('micon');
-    ic.forEach(function(x){x.style.transition='transform 420ms '+E+',opacity 220ms ease-out,filter 200ms ease 200ms';
+    ic.forEach(function(x){x.style.transition='transform 420ms '+E+',opacity 220ms ease-out,filter 120ms ease-out';
       if(x===el){x.style.transform='translateY('+dy+'px)';x.style.filter='brightness(0) invert(1)';}
       else{x.style.opacity='0';x.style.transform='scale(.7)';}});
     if(bg){bg.style.transition='height 420ms '+E+',opacity 220ms ease-out';bg.style.height='66px';bg.style.opacity='0';}
@@ -397,7 +460,7 @@
     // vuelve a la variante de origen con la misma transición
     var pv=h.el._prev;if(!pv)return;
     var back=pv.cloneNode(true);back._orig=pv._orig;back._pristine=pv._pristine;back._k=pv._k;
-    swap(h.el,back,tr(h.a));arm(back);
+    swap(h.el,back,tr(h.a),null,null,{over:1});arm(back);
   }
 
   show(B.start);

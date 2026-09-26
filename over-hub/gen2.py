@@ -96,7 +96,7 @@ def pack(i, modes=False):
     out = {}
     if modes:
         base = render(n, b['x'], b['y'], root=True)
-        for m in ('dim', 'dark'):
+        for m in ('light', 'dim', 'dark'):
             gen.CUR_MODE[0] = m
             h = render(n, b['x'], b['y'], root=True)
             gen.CUR_MODE[0] = None

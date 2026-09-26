@@ -323,6 +323,10 @@ def PARENT_OFF(n, ox, oy):
     if not P: return (0, 0)
     pb = bb(P); return (pb['x'] - ox, pb['y'] - oy)
 def rotated(rt): return abs(rt[0][1]) > 1e-3 or rt[0][0] < 0 or rt[1][1] < 0
+def abs_rot(n):
+    # giro real en pantalla (un grupo girado no tiene caja propia: se aplana y cada hija lleva su giro neto)
+    compute_abs_for(n); A = ABS.get(n['id'])
+    return bool(A is not None and rotated(A) and n['type'] != 'GROUP')
 
 def center_tf(rt, w, h, pad=0):
     """left/top y transform con origen en el centro: así un cambio de giro se anima girando en su sitio."""
@@ -337,7 +341,7 @@ def center_tf(rt, w, h, pad=0):
 def render(n, ox, oy, root=False, extra_cls=''):
     mine = LOCAL[0]
     rt = n.get('relativeTransform')
-    kl = mine or bool(rt and n.get('size') and rotated(rt) and n['id'] not in SVG_IDS and not root)
+    kl = mine or bool(rt and n.get('size') and n['id'] not in SVG_IDS and not root and ((rotated(rt) and n['type'] != 'GROUP') or abs_rot(n)))
     LOCAL[0] = kl
     try: return _render(n, ox, oy, root, extra_cls, mine)
     finally: LOCAL[0] = mine
@@ -380,7 +384,7 @@ def _render(n, ox, oy, root, extra_cls, mine):
         lx, ly, W, H, tf = center_tf(rt, n['size']['x'], n['size']['y'])
         st = [f'left:{lx:.2f}px', f'top:{ly:.2f}px', f'width:{W:.2f}px', f'height:{H:.2f}px']
         if rotated(rt): st.append(tf)
-    elif rt and n.get('size') and rotated(rt) and n['id'] not in SVG_IDS:
+    elif rt and n.get('size') and n['id'] not in SVG_IDS and not root and ((rotated(rt) and n['type'] != 'GROUP') or abs_rot(n)):
         P = PARENT.get(n['id'])
         if True:
             # coordenadas del padre: su bbox; el origen local del nodo viene de la matriz
@@ -392,7 +396,8 @@ def _render(n, ox, oy, root, extra_cls, mine):
                 lx, ly = NA[0][2] - ox, NA[1][2] - oy
             else:
                 lx, ly = px + rt[0][2], py + rt[1][2]
-            M = [[rt[0][0], rt[0][1], lx], [rt[1][0], rt[1][1], ly]]
+            L = NA if NA is not None else rt
+            M = [[L[0][0], L[0][1], lx], [L[1][0], L[1][1], ly]]
             cx_, cy_, W_, H_, tf = center_tf(M, n['size']['x'], n['size']['y'])
             st = [f'left:{cx_:.2f}px', f'top:{cy_:.2f}px', f'width:{W_:.2f}px', f'height:{H_:.2f}px', tf]
     if n['type'] == 'TEXT':
