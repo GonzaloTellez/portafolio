@@ -34,3 +34,21 @@ img.f{{display:block;user-select:none;-webkit-user-drag:none}}
 open(os.path.join(OUT, 'index.html'), 'w').write(page)
 import shutil; shutil.copy(os.path.join(HERE, 'player.js'), os.path.join(OUT, 'player.js'))
 print('index.html', len(page) // 1024, 'KB')
+
+# SVG repetidos (mismo ícono en muchas instancias): un solo archivo por contenido
+import hashlib, re as _re, glob
+idx = open(os.path.join(OUT, 'index.html')).read()
+seen, ren = {}, {}
+for p in sorted(glob.glob(os.path.join(OUT, 'a', '*.svg'))):
+    h = hashlib.md5(open(p, 'rb').read()).hexdigest()[:12]
+    new = 's' + h + '.svg'
+    ren[os.path.basename(p)] = new
+    np_ = os.path.join(OUT, 'a', new)
+    if not os.path.exists(np_): os.rename(p, np_)
+    elif p != np_: os.remove(p)
+idx = _re.sub(r'a/(n[^"\\]+?\.svg)', lambda m: 'a/' + ren.get(m.group(1), m.group(1)), idx)
+used = set(_re.findall(r'a/([\w.]+\.(?:svg|webp))', idx))
+for p in glob.glob(os.path.join(OUT, 'a', '*')):
+    if os.path.basename(p) not in used: os.remove(p)
+open(os.path.join(OUT, 'index.html'), 'w').write(idx)
+print('assets', len(used))
