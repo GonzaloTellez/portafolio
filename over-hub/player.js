@@ -242,7 +242,7 @@
     var src=build(box,d); if(!src) return null;
     // estado anterior intacto, para volver a él al terminar un hover
     var prev=box.cloneNode(true);prev._orig=box._orig;prev._pristine=box._pristine;prev._k=box._k;src._prev=prev;
-    var t=tr(a);swap(box,src,t);
+    var t=box._instant?null:tr(a);swap(box,src,t);
     arm(src,t?t.ms:0);
     return src;
   }
@@ -311,7 +311,15 @@
     if(a.type==='CONDITIONAL') return (a.conditionalBlocks||[]).some(function(b){return (b.actions||[]).some(visible)});
     return a.type==='NODE'||a.type==='CLOSE'||a.type==='BACK'||a.type==='URL';
   }
-  function arm(root,delay){delay=delay||0;
+  function markTop(root){[].slice.call(root.querySelectorAll('[data-n$=" select"]')).concat(/ select$/.test(root.getAttribute('data-n')||'')?[root]:[]).forEach(function(m){
+    var ic=[].slice.call(m.querySelectorAll('[data-n]')).filter(function(x){return ICONS.indexOf(x.getAttribute('data-n'))>=0});if(!ic.length)return;
+    ic.forEach(function(x){x.classList.add('micon');
+      // dim: en hover usa la luna con el hueco más amplio (la del estado hover de Figma), en negro
+      if(x.getAttribute('data-n')==='dim'&&!x.querySelector('.dimalt')){
+        var d2=x.querySelector('img[data-n="dim 2"]'),hv=html(B.variants['587:4555'].html),h2=hv&&hv.querySelector('img[data-n="dim 2"]');
+        if(d2&&h2){var al=d2.cloneNode(false);al.src=h2.getAttribute('src');al.classList.add('dimalt');d2.classList.add('dimorig');al.removeAttribute('data-id');d2.parentNode.insertBefore(al,d2.nextSibling);}
+      }});})}
+  function arm(root,delay){delay=delay||0;setTimeout(function(){if(root.isConnected)markTop(root)},(delay||0)+30);
     var els=[root].concat([].slice.call(root.querySelectorAll('[data-id]')));
     els.forEach(function(el){
       list(el,'AFTER_TIMEOUT').forEach(function(x){
@@ -326,7 +334,27 @@
   stage.addEventListener('click',function(e){if(helpOf(e.target)&&window.openGuide){window.openGuide();return}});
   stage.addEventListener('mouseover',function(e){var h=helpOf(e.target);if(h)h.style.cursor='pointer'});
   var calm=null;
-  stage.addEventListener('click',function(e){var el=find(e.target,'ON_CLICK');if(el){e.stopPropagation();endHover(true);var out=fire(el,'ON_CLICK',e);
+  /* menú de modos: al elegir, el panel se recoge, el ícono elegido sube al lugar superior y se vuelve blanco */
+  var ICONS=['light mode','dim','dark'];
+  function menuOf(el){var m=el.closest&&el.closest('[data-n$=" select"]');return m&&ICONS.indexOf(el.getAttribute('data-n'))>=0?m:null}
+  function pickMode(el,menu,go){
+    if(menu._busy)return;menu._busy=true;
+    var ic=[].slice.call(menu.querySelectorAll('[data-n]')).filter(function(x){return ICONS.indexOf(x.getAttribute('data-n'))>=0});
+    var top=ic.reduce(function(a,b){return b.getBoundingClientRect().top<a.getBoundingClientRect().top?b:a});
+    var dy=(top.getBoundingClientRect().top-el.getBoundingClientRect().top)/SCALE;
+    var bg=[].slice.call(menu.children).filter(function(x){return /background/i.test(x.getAttribute('data-n')||'')})[0];
+    var E='cubic-bezier(.22,1,.36,1)';
+    el.classList.remove('micon');
+    ic.forEach(function(x){x.style.transition='transform 420ms '+E+',opacity 260ms ease-out,filter 420ms ease';
+      if(x===el){x.style.transform='translateY('+dy+'px)';x.style.filter='brightness(0) invert(1)';}
+      else{x.style.opacity='0';x.style.transform='scale(.7)';}});
+    if(bg){bg.style.transition='height 420ms '+E+',opacity 380ms ease';bg.style.height='66px';bg.style.opacity='0';}
+    setTimeout(function(){menu._instant=true;go();},400);
+  }
+  stage.addEventListener('click',function(e){var el=find(e.target,'ON_CLICK');var mm=el&&menuOf(el);
+    if(mm&&!mm._busy&&el!==[].slice.call(mm.querySelectorAll('[data-n]')).filter(function(x){return ICONS.indexOf(x.getAttribute('data-n'))>=0}).reduce(function(a,b){return b.getBoundingClientRect().top<a.getBoundingClientRect().top?b:a})){
+      e.stopPropagation();endHover(true);pickMode(el,mm,function(){fire(el,'ON_CLICK',e)});return;}
+    if(el){e.stopPropagation();endHover(true);var out=fire(el,'ON_CLICK',e);
     var s=out.length?out[out.length-1][0]:null;calm=s||el.closest('[data-c]')||el;}});
   stage.addEventListener('mousedown',function(e){var el=find(e.target,'MOUSE_DOWN');if(el)fire(el,'MOUSE_DOWN',e)});
   stage.addEventListener('mouseup',function(e){var el=find(e.target,'MOUSE_UP');if(el)fire(el,'MOUSE_UP',e)});
