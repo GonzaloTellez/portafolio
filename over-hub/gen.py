@@ -165,6 +165,11 @@ def box_css(n):
     sh = []
     for e in n.get('effects') or []:
         if e.get('visible') is False: continue
+        if e['type'] == 'DROP_SHADOW' and not vis_p and n['type'] in ('GROUP', 'FRAME', 'INSTANCE', 'COMPONENT', 'BOOLEAN_OPERATION'):
+            # sin relleno propio: la sombra la proyecta el contenido, no una caja
+            o = e.get('offset', {'x': 0, 'y': 0})
+            s.append(f"filter:drop-shadow({o['x']}px {o['y']}px {e.get('radius',0)/2:.1f}px {rgba(e['color'])})")
+            continue
         if e['type'] in ('DROP_SHADOW', 'INNER_SHADOW'):
             o = e.get('offset', {'x': 0, 'y': 0})
             sh.append(f"{'inset ' if e['type']=='INNER_SHADOW' else ''}{o['x']}px {o['y']}px {e.get('radius',0)}px {e.get('spread',0)}px {rgba(e['color'])}")
@@ -316,7 +321,7 @@ def _render(n, ox, oy, root, extra_cls, mine):
     if n['id'] in SVG_IDS:
         if mine and n.get('relativeTransform') and n.get('size'):
             fn = fname(n['id'] + '_l', 'svg')
-            if not os.path.exists(os.path.join(AS, fn)): svg_for(n, fn, local=True)
+            svg_for(n, fn, local=True)
             t = n['relativeTransform']; pad = LOCAL_PAD.get(n['id'], 0)
             tf = f";transform-origin:{pad}px {pad}px;transform:matrix({t[0][0]:.5f},{t[1][0]:.5f},{t[0][1]:.5f},{t[1][1]:.5f},0,0)" if rotated(t) else ''
             st = f"left:{t[0][2]-pad:.2f}px;top:{t[1][2]-pad:.2f}px;width:{n['size']['x']+2*pad:.2f}px;height:{n['size']['y']+2*pad:.2f}px{tf}"

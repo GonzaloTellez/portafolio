@@ -141,6 +141,12 @@
       pairs.forEach(function(p){
         var o=p[0],n=p[1],from=live(o),to=snap(n);
         var same=o.tagName===n.tagName&&(o.tagName!=='IMG'||o.getAttribute('src')===n.getAttribute('src'));
+        if(!same&&o.tagName==='IMG'&&n.tagName==='IMG'){
+          // misma figura a otra escala (p. ej. botones que se encogen): se anima el tamaño, sin fundido
+          var ra=num(o.style.width)/Math.max(1,num(o.style.height)),rb=num(n.style.width)/Math.max(1,num(n.style.height));
+          var rs=num(n.style.width)/Math.max(1,num(o.style.width));
+          if(Math.abs(ra-rb)<0.1*rb&&Math.abs(rs-1)>0.05)same=true;
+        }
         if(same&&o!==oldEl) o.style.visibility='hidden';
         // si la capa venía invisible, su color no se interpola (evita destellos grises)
         var hid=parseFloat(from.opacity)===0;
@@ -309,7 +315,9 @@
   function helpOf(t){while(t&&t!==stage){if(t.textContent&&t.textContent.trim()==='Help?'&&t.getBoundingClientRect().height<120*SCALE+40)return t;t=t.parentElement}return null}
   stage.addEventListener('click',function(e){if(helpOf(e.target)&&window.openGuide){window.openGuide();return}});
   stage.addEventListener('mouseover',function(e){var h=helpOf(e.target);if(h)h.style.cursor='pointer'});
-  stage.addEventListener('click',function(e){var el=find(e.target,'ON_CLICK');if(el){e.stopPropagation();endHover(true);fire(el,'ON_CLICK',e)}});
+  var calm=null;
+  stage.addEventListener('click',function(e){var el=find(e.target,'ON_CLICK');if(el){e.stopPropagation();endHover(true);var out=fire(el,'ON_CLICK',e);
+    var s=out.length?out[out.length-1][0]:null;calm=s||el.closest('[data-c]')||el;}});
   stage.addEventListener('mousedown',function(e){var el=find(e.target,'MOUSE_DOWN');if(el)fire(el,'MOUSE_DOWN',e)});
   stage.addEventListener('mouseup',function(e){var el=find(e.target,'MOUSE_UP');if(el)fire(el,'MOUSE_UP',e)});
 
@@ -319,6 +327,7 @@
     var el=find(e.target,'MOUSE_ENTER');
     if(el&&!(e.relatedTarget&&el.contains(e.relatedTarget)))fire(el,'MOUSE_ENTER',e);
     var h=find(e.target,'ON_HOVER');
+    if(h&&calm&&calm.isConnected&&(calm.contains(h)||h.contains(calm)))h=null;
     if(h&&(!hov||!hov.el.isConnected||!(hov.el===h||hov.el.contains(h)||h.contains(hov.el)))){
       endHover();
       var res=fire(h,'ON_HOVER',e);
@@ -330,6 +339,7 @@
     while(t&&t!==stage){if(t.getAttribute&&list(t,'MOUSE_LEAVE').length&&t.isConnected&&!(e.relatedTarget&&t.contains(e.relatedTarget)))fire(t,'MOUSE_LEAVE',e);t=t.parentNode}
   });
   window.addEventListener('mousemove',function(e){
+    if(calm){if(!calm.isConnected)calm=null;else{var q=calm.getBoundingClientRect();if(e.clientX<q.left||e.clientX>q.right||e.clientY<q.top||e.clientY>q.bottom)calm=null;}}
     if(!hov||Date.now()<hov.until)return;
     if(!hov.el.isConnected){hov=null;return}
     var r=hov.el.getBoundingClientRect();
