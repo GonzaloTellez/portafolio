@@ -1,0 +1,94 @@
+"""Recorre todo el prototipo desde el frame inicial (navegaciones, overlays y cambios de variante),
+descarga lo que falte y genera out/build.json con el HTML de cada pantalla, variante y overlay,
+más las interacciones de Figma para que el reproductor (player.js) las interprete."""
+import json, os, urllib.parse
+import gen
+from gen import IDX, reg, api, KEY, render, plan, export, SVG_IDS, PNG_IDS, bb, vis, FONTS, OUT
+
+START = '587:1944'
+META = {}  # componentId -> {name, componentSetId}
+for src in [json.load(open(os.path.join(gen.ROOT, 'fig-final-geo.json')))['nodes']['587:1943'],
+            *json.load(open(os.path.join(gen.HERE, 'dest-nodes.json')))['nodes'].values()]:
+    META.update(src.get('components', {}))
+
+def parents():
+    P = {}
+    def w(n):
+        for c in n.get('children', []): P[c['id']] = n['id']; w(c)
+    for n in list(IDX.values()):
+        if n['type'] in ('CANVAS', 'DOCUMENT') or n['id'] not in P: w(n)
+    return P
+
+def acts(a, out):
+    if not a: return
+    if a.get('destinationId'): out.append((a.get('navigation'), a['destinationId']))
+    for b in a.get('conditionalBlocks', []) or []:
+        for x in b.get('actions', []) or []: acts(x, out)
+
+def sub(n):
+    yield n
+    for c in n.get('children', []): yield from sub(c)
+
+GEO = set(gen.IDX_PAGE)
+def fetch_nodes(ids):
+    ids = sorted(set(i for i in ids if i not in GEO))
+    for k in range(0, len(ids), 60):
+        ch = ids[k:k + 60]
+        try: r = api(f'https://api.figma.com/v1/files/{KEY}/nodes?ids={urllib.parse.quote(",".join(ch))}&geometry=paths')
+        except Exception as e: print('sin acceso:', ch, e); continue
+        for i, v in (r.get('nodes') or {}).items():
+            if not v: print('no node', i); continue
+            reg(v['document']); META.update(v.get('components', {})); GEO.add(i)
+
+screens, variants, overlays = [], [], []
+seen = set()
+queue = [('NAVIGATE', START)]
+INTER, INST = {}, {}
+while queue:
+    fetch_nodes([d for _, d in queue])
+    nxt = []
+    for nav, d in queue:
+        if d in seen or d not in IDX: continue
+        seen.add(d)
+        n = IDX[d]
+        {'NAVIGATE': screens, 'SCROLL_TO': screens, 'SWAP': overlays, 'OVERLAY': overlays}.get(nav, variants).append(d)
+        for m in sub(n):
+            if not vis(m): continue
+            if m.get('interactions'): INTER[m['id']] = m['interactions']
+            if m['type'] == 'INSTANCE' and m.get('componentId'): INST[m['id']] = m['componentId']
+            for r in m.get('interactions') or []:
+                out = []
+                for a in r.get('actions') or []: acts(a, out)
+                nxt += [(nv or 'CHANGE_TO', x) for nv, x in out]
+    queue = nxt
+print('screens', len(screens), 'variants', len(variants), 'overlays', len(overlays))
+
+# instancias originales a las que se puede volver con CHANGE_TO
+for i, c in INST.items():
+    if c not in IDX: pass
+
+allroots = screens + variants + overlays
+for r in allroots: plan(IDX[r])
+print('svg', len(SVG_IDS), flush=True)
+for r in allroots:
+    for m in sub(IDX[r]): gen.ROOT_OF.setdefault(m['id'], r)
+
+def pack(i):
+    n = IDX[i]; b = bb(n)
+    return {'html': render(n, b['x'], b['y'], root=True), 'w': b['width'], 'h': b['height'], 'name': n['name'],
+            'bg': n.get('overlayBackground'), 'pos': n.get('overlayPositionType'),
+            'close': n.get('overlayBackgroundInteraction'), 'set': META.get(i, {}).get('componentSetId')}
+
+build = {
+    'start': START,
+    'screens': {i: pack(i) for i in screens},
+    'variants': {i: pack(i) for i in variants},
+    'overlays': {i: pack(i) for i in overlays},
+    'inter': INTER,
+    'inst': INST,
+    'sets': {k: v.get('componentSetId') for k, v in META.items()},
+    'fonts': sorted(FONTS),
+}
+json.dump(build, open(os.path.join(OUT, 'build.json'), 'w'))
+print('missing svgs', len(gen.MISSING))
+print('ok', {k: len(v) for k, v in build.items() if isinstance(v, dict)})
