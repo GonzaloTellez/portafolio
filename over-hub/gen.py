@@ -16,9 +16,10 @@ dest = {k: v['document'] for k, v in json.load(open(os.path.join(HERE, 'dest-nod
 fills = json.load(open(os.path.join(HERE, 'imagefills.json')))['meta']['images']
 
 IDX = {}
+PARENT = {}
 def reg(n):
     IDX[n['id']] = n
-    for c in n.get('children', []): reg(c)
+    for c in n.get('children', []): PARENT[c['id']] = n; reg(c)
 reg(page)
 IDX_PAGE = set(IDX)
 for n in dest.values():
@@ -129,7 +130,12 @@ def radius(n):
 def box_css(n):
     s = []
     bgs = []
-    for p in reversed([p for p in (n.get('fills') or []) if p.get('visible', True) is not False]):
+    vis_p = [p for p in (n.get('fills') or []) if p.get('visible', True) is not False]
+    if len(vis_p) == 1 and vis_p[0]['type'] == 'SOLID':
+        # un solo color sólido: background-color, que sí se puede animar
+        s.append('background-color:' + paint_css(vis_p[0], n))
+        vis_p = []
+    for p in reversed(vis_p):
         if p['type'] == 'IMAGE':
             f = image_file(p.get('imageRef'))
             if f:
@@ -286,7 +292,18 @@ def bb(n):
 def rb(n):
     return n.get('absoluteRenderBounds') or bb(n)
 
+LOCAL = [False]
+def rotated(rt): return abs(rt[0][1]) > 1e-3 or rt[0][0] < 0 or rt[1][1] < 0
+
 def render(n, ox, oy, root=False, extra_cls=''):
+    mine = LOCAL[0]
+    rt = n.get('relativeTransform')
+    kl = mine or bool(rt and n.get('size') and rotated(rt) and n['id'] not in SVG_IDS and not root)
+    LOCAL[0] = kl
+    try: return _render(n, ox, oy, root, extra_cls, mine)
+    finally: LOCAL[0] = mine
+
+def _render(n, ox, oy, root, extra_cls, mine):
     if not vis(n): return ''
     b = bb(n)
     x, y, w, h = b['x'] - ox, b['y'] - oy, b['width'], b['height']
@@ -294,20 +311,47 @@ def render(n, ox, oy, root=False, extra_cls=''):
     if n['type'] in ('INSTANCE', 'COMPONENT'): attrs += f' data-c="{n.get("componentId", n["id"])}"'
     cls = ('f ' + extra_cls).strip()
     if n['id'] in SVG_IDS:
+        if mine and n.get('relativeTransform') and n.get('size'):
+            fn = fname(n['id'] + '_l', 'svg')
+            if not os.path.exists(os.path.join(AS, fn)): svg_for(n, fn, local=True)
+            t = n['relativeTransform']; pad = LOCAL_PAD.get(n['id'], 0)
+            tf = f";transform-origin:{pad}px {pad}px;transform:matrix({t[0][0]:.5f},{t[1][0]:.5f},{t[0][1]:.5f},{t[1][1]:.5f},0,0)" if rotated(t) else ''
+            st = f"left:{t[0][2]-pad:.2f}px;top:{t[1][2]-pad:.2f}px;width:{n['size']['x']+2*pad:.2f}px;height:{n['size']['y']+2*pad:.2f}px{tf}"
+            op = f";opacity:{n['opacity']:.3f}" if n.get('opacity', 1) < 1 else ''
+            return f'<img class="{cls}" {attrs} src="a/{fn}" alt="" style="{st}{op}" draggable="false">'
         fn = fname(n['id'], 'svg')
         r = LOCAL_SVG.get(n['id'])
         if not r:
-            if os.path.exists(os.path.join(AS, fn)) and not os.path.exists(os.path.join(AS, fn + '.local')):
-                r = rb(n)  # exportado por Figma
-            elif n.get('fillGeometry') is not None or any('fillGeometry' in m for m in sub(n)):
-                r = svg_for(n, fn); open(os.path.join(AS, fn + '.local'), 'w').close()
+            if n.get('fillGeometry') is not None or any('fillGeometry' in m for m in sub(n)):
+                r = svg_for(n, fn)
             else:
                 MISSING.append(n['id']); return ''
             LOCAL_SVG[n['id']] = r
         st = f"left:{r['x']-ox:.2f}px;top:{r['y']-oy:.2f}px;width:{r['width']:.2f}px;height:{r['height']:.2f}px"
         op = f";opacity:{n['opacity']:.3f}" if n.get('opacity', 1) < 1 else ''
+        sh = [e for m in [n] for e in (m.get('effects') or []) if e.get('visible', True) and e['type'] == 'DROP_SHADOW']
+        if sh: op += ';filter:' + ' '.join(f"drop-shadow({e.get('offset',{}).get('x',0)}px {e.get('offset',{}).get('y',0)}px {e.get('radius',0)/2:.1f}px {rgba(e['color'])})" for e in sh)
         return f'<img class="{cls}" {attrs} src="a/{fn}" alt="" style="{st}{op}" draggable="false">'
     st = [f'left:{x:.2f}px', f'top:{y:.2f}px', f'width:{w:.2f}px', f'height:{h:.2f}px']
+    rt = n.get('relativeTransform')
+    if mine and rt and n.get('size'):
+        # dentro de un padre girado: coordenadas locales de Figma
+        st = [f'left:{rt[0][2]:.2f}px', f'top:{rt[1][2]:.2f}px', f'width:{n["size"]["x"]:.2f}px', f'height:{n["size"]["y"]:.2f}px']
+        if rotated(rt): st.append(f'transform-origin:0 0;transform:matrix({rt[0][0]:.5f},{rt[1][0]:.5f},{rt[0][1]:.5f},{rt[1][1]:.5f},0,0)')
+    elif rt and n.get('size') and rotated(rt) and n['id'] not in SVG_IDS:
+        P = PARENT.get(n['id'])
+        if True:
+            # coordenadas del padre: su bbox; el origen local del nodo viene de la matriz
+            pb = bb(P) if P else {'x': ox, 'y': oy}
+            px, py = (pb['x'] - ox, pb['y'] - oy) if P else (0, 0)
+            compute_abs_for(n)
+            NA = ABS.get(n['id'])
+            if NA is not None:
+                lx, ly = NA[0][2] - ox, NA[1][2] - oy
+            else:
+                lx, ly = px + rt[0][2], py + rt[1][2]
+            st = [f'left:{lx:.2f}px', f'top:{ly:.2f}px', f'width:{n["size"]["x"]:.2f}px', f'height:{n["size"]["y"]:.2f}px',
+                  f'transform-origin:0 0;transform:matrix({rt[0][0]:.5f},{rt[1][0]:.5f},{rt[0][1]:.5f},{rt[1][1]:.5f},0,0)']
     if n['type'] == 'TEXT':
         s = n.get('style', {})
         st += text_css(s)
@@ -333,6 +377,31 @@ def render(n, ox, oy, root=False, extra_cls=''):
         if m: st.append(m)
         return f'<div class="{cls}" {attrs} style="{";".join(st)}"></div>'
     st += box_css(n)
+    if root and n.get('overflowDirection') in ('HORIZONTAL_SCROLLING', 'VERTICAL_SCROLLING', 'HORIZONTAL_AND_VERTICAL_SCROLLING', 'BOTH_DIRECTIONS'):
+        # pantalla con desplazamiento (entorno 360): la escena se mueve y lo marcado como FIXED queda en la vista
+        vk = [c for c in kids if vis(c)]
+        fixed = [c for c in vk if c.get('scrollBehavior') == 'FIXED']
+        moving = [c for c in vk if c.get('scrollBehavior') != 'FIXED']
+        xs = [bb(c)['x'] - b['x'] for c in moving] + [0]; ys = [bb(c)['y'] - b['y'] for c in moving] + [0]
+        xe = [bb(c)['x'] - b['x'] + bb(c)['width'] for c in moving] + [w]; ye = [bb(c)['y'] - b['y'] + bb(c)['height'] for c in moving] + [h]
+        hz = 'HORIZONTAL' in n['overflowDirection'] or n['overflowDirection'] == 'BOTH_DIRECTIONS'
+        vt = 'VERTICAL' in n['overflowDirection'] or n['overflowDirection'] == 'BOTH_DIRECTIONS'
+        mx, my = (min(xs) if hz else 0), (min(ys) if vt else 0)
+        cw, ch = ((max(xe) - mx) if hz else w), ((max(ye) - my) if vt else h)
+        if cw > w + 1 or ch > h + 1:
+            def rc(c):
+                r = render(c, b['x'] + mx, b['y'] + my)
+                cb = bb(c)
+                # panorámica equirectangular (2:1) que envuelve la escena: se marca para girar 360°
+                if cb['height'] and abs(cb['width'] / cb['height'] - 2) < 0.06 and any(has_img(m) for m in sub(c)) and cb['width'] > w * 2:
+                    r = r.replace('<div ', '<div data-pano="1" ', 1)
+                return r
+            inner = ''.join(rc(c) for c in moving)
+            ov = f"overflow:{'auto' if hz else 'hidden'} {'auto' if vt else 'hidden'}"
+            scroller = (f'<div class="f scr scr-root" data-sx="{-mx:.0f}" data-sy="{-my:.0f}" style="left:0;top:0;width:{w:.2f}px;height:{h:.2f}px;{ov}">'
+                        f'<div class="f pe0" style="left:0;top:0;width:{cw:.2f}px;height:{ch:.2f}px">{inner}</div></div>')
+            fx = ''.join(render(c, b['x'], b['y']) for c in fixed)
+            return f'<div class="{cls}" {attrs} style="{";".join(st)};overflow:hidden">{scroller}{fx}</div>'
     mk = [c for c in kids if c.get('isMask') and vis(c)]
     if mk:
         # la máscara recorta a los hermanos que están por encima de ella
@@ -420,7 +489,12 @@ def _paint_svg(p, defs, gid):
         c = p['gradientStops'][0]['color']; return f"rgb({round(c['r']*255)},{round(c['g']*255)},{round(c['b']*255)})", op
     return None, 0
 
-def svg_for(root, fname_out):
+LOCAL_PAD = {}
+def _inv(A):
+    a,b,c,d,e,f=A[0][0],A[1][0],A[0][1],A[1][1],A[0][2],A[1][2]; det=a*d-b*c
+    return [[d/det,-c/det,(c*f-d*e)/det],[-b/det,a/det,(b*e-a*f)/det],[0,0,1]]
+
+def svg_for(root, fname_out, local=False):
     compute_abs_for(root)
     b = bb(root)
     pad = 0
@@ -428,15 +502,35 @@ def svg_for(root, fname_out):
         if m.get('strokes') and m.get('strokeWeight'): pad = max(pad, m['strokeWeight'])
     pad = math.ceil(pad) + 1
     X, Y, W, H = b['x'] - pad, b['y'] - pad, b['width'] + 2 * pad, b['height'] + 2 * pad
+    base = None
+    if local and ABS.get(root['id']) is not None:
+        base = _inv(ABS[root['id']]); X, Y = -pad, -pad; W, H = root['size']['x'] + 2 * pad, root['size']['y'] + 2 * pad
+        LOCAL_PAD[root['id']] = pad
     defs, body = [], []
     k = [0]
     def w(n, op):
         if not vis(n): return
         op = op * n.get('opacity', 1)
         A = ABS.get(n['id'])
+        if A is not None and base is not None: A = _mul(base, A)
         if A is not None:
             mt = f'matrix({A[0][0]:.5f} {A[1][0]:.5f} {A[0][1]:.5f} {A[1][1]:.5f} {A[0][2]-X:.3f} {A[1][2]-Y:.3f})'
-            for geo, paints in ((n.get('fillGeometry') or [], n.get('fills') or []), (n.get('strokeGeometry') or [], n.get('strokes') or [])):
+            clip = ''
+            if n.get('strokeAlign') == 'INSIDE' and n.get('strokeGeometry') and n.get('fillGeometry'):
+                # el trazo "por dentro": se recorta con la forma del propio nodo
+                k[0] += 1; cid = f'c{k[0]}'
+                defs.append(f'<clipPath id="{cid}">' + ''.join(f'<path transform="{mt}" d="{g["path"]}"/>' for g in n['fillGeometry']) + '</clipPath>')
+                clip = f' clip-path="url(#{cid})"'
+            smt = mt
+            if n.get('strokeAlign') in ('INSIDE', 'OUTSIDE') and n.get('strokeGeometry') and not clip and n.get('size'):
+                # sin forma para recortar: el trazo centrado se escala para quedar por dentro (o por fuera) del contorno
+                sw = n.get('strokeWeight', 0); W0, H0 = n['size']['x'], n['size']['y']
+                sg = -1 if n['strokeAlign'] == 'INSIDE' else 1
+                sx = (W0 + sg * sw) / W0 if W0 > sw else 1; sy = (H0 + sg * sw) / H0 if H0 > sw else 1
+                S = [[sx, 0, W0 / 2 * (1 - sx)], [0, sy, H0 / 2 * (1 - sy)], [0, 0, 1]]
+                A2 = _mul(A, S)
+                smt = f'matrix({A2[0][0]:.5f} {A2[1][0]:.5f} {A2[0][1]:.5f} {A2[1][1]:.5f} {A2[0][2]-X:.3f} {A2[1][2]-Y:.3f})'
+            for gi, (geo, paints) in enumerate(((n.get('fillGeometry') or [], n.get('fills') or []), (n.get('strokeGeometry') or [], n.get('strokes') or []))):
                 for p in paints:
                     if p.get('visible', True) is False: continue
                     k[0] += 1
@@ -445,7 +539,9 @@ def svg_for(root, fname_out):
                     for g in geo:
                         rule = 'evenodd' if g.get('windingRule') == 'EVENODD' else 'nonzero'
                         a = op * po
-                        body.append(f'<path transform="{mt}" d="{g["path"]}" fill="{col}" fill-rule="{rule}"' + (f' fill-opacity="{a:.3f}"' if a < .999 else '') + '/>')
+                        pth = f'<path transform="{smt if gi == 1 else mt}" d="{g["path"]}" fill="{col}" fill-rule="{rule}"' + (f' fill-opacity="{a:.3f}"' if a < .999 else '') + '/>'
+                        # el recorte va en un grupo: así el clipPath usa las coordenadas del SVG, no las del trazo
+                        body.append(f'<g{clip}>{pth}</g>' if gi == 1 and clip else pth)
         for c in n.get('children', []): w(c, op)
     w(root, 1 / max(root.get('opacity', 1), 1e-6) * root.get('opacity', 1))
     svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="{W:.2f}" height="{H:.2f}" viewBox="0 0 {W:.2f} {H:.2f}">' + (f'<defs>{"".join(defs)}</defs>' if defs else '') + ''.join(body) + '</svg>'
