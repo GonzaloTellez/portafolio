@@ -16,7 +16,7 @@ page = f'''<!doctype html>
 <meta name="robots" content="noindex">
 <link rel="stylesheet" href="fonts/fonts.css">
 <style>
-html,body{{margin:0;height:100%;overflow:hidden;background:#F1F2F4}}
+html,body{{margin:0;height:100%;overflow:hidden;background:#141414}}
 #app{{position:fixed;inset:0;overflow:hidden}}
 #stage{{position:absolute;left:0;top:0;transform-origin:0 0}}
 .f{{position:absolute;box-sizing:border-box;margin:0;pointer-events:auto}}.pe0{{pointer-events:none}}.gone,.gone *{{pointer-events:none!important}}

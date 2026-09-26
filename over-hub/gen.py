@@ -573,6 +573,10 @@ def _paint_svg(p, defs, gid):
     return None, 0
 
 LOCAL_PAD = {}
+def _lum(col):
+    import re as _r
+    v = [int(x) for x in _r.findall(r'\d+', col)[:3]] or [0, 0, 0]
+    return (0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2]) / 255
 def _inv(A):
     a,b,c,d,e,f=A[0][0],A[1][0],A[0][1],A[1][1],A[0][2],A[1][2]; det=a*d-b*c
     return [[d/det,-c/det,(c*f-d*e)/det],[-b/det,a/det,(b*e-a*f)/det],[0,0,1]]
@@ -623,7 +627,7 @@ def svg_for(root, fname_out, local=False):
                         rule = 'evenodd' if g.get('windingRule') == 'EVENODD' else 'nonzero'
                         a = op * po
                         # relleno junto a un borde: se ensancha un pelo para que no quede la rendija clara entre ambos
-                        seal = gi == 0 and a >= .999 and not col.startswith('url') and (len(geo) > 1 or (any(q.get('visible', True) is not False for q in (n.get('strokes') or [])) and n.get('strokeGeometry')))
+                        seal = gi == 0 and a >= .999 and not col.startswith('url') and ((len(geo) > 1 and _lum(col) > .08) or (any(q.get('visible', True) is not False for q in (n.get('strokes') or [])) and n.get('strokeGeometry')))
                         pth = f'<path transform="{smt if gi == 1 else mt}" d="{g["path"]}" fill="{col}" fill-rule="{rule}"' + (f' fill-opacity="{a:.3f}"' if a < .999 else '') + (f' stroke="{col}" stroke-width="0.9" stroke-linejoin="round"' if seal else '') + '/>'
                         # el recorte va en un grupo: así el clipPath usa las coordenadas del SVG, no las del trazo
                         body.append(f'<g{clip}>{pth}</g>' if gi == 1 and clip else pth)
