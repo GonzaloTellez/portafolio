@@ -14,7 +14,7 @@
   }
   var SCALE=1;
   /* pantallas con entorno: arranca en el encuadre del diseño */
-  function home(root){[].forEach.call(root.querySelectorAll('.scr-root'),function(sc){
+  function home(root,dx,dy){dx=dx||0;dy=dy||0;[].forEach.call(root.querySelectorAll('.scr-root'),function(sc){
     var inner=sc.firstElementChild, pano=inner&&inner.querySelector(':scope>[data-pano]');
     if(pano&&!sc._pano){
       // 360°: la panorámica se repite a ambos lados y la vista se reubica sin que se note
@@ -27,7 +27,7 @@
       var H0=+sc.getAttribute('data-sx');sc._pano=W;
       sc.addEventListener('scroll',function(){var x=sc.scrollLeft;if(x<H0-W/2)sc.scrollLeft=x+W;else if(x>H0+W/2)sc.scrollLeft=x-W;},{passive:true});
     }
-    sc.scrollLeft=+sc.getAttribute('data-sx');sc.scrollTop=+sc.getAttribute('data-sy')})}
+    sc.scrollLeft=+sc.getAttribute('data-sx')+dx;sc.scrollTop=+sc.getAttribute('data-sy')+dy})}
   /* arrastrar para mirar alrededor (y para desplazar listas), como en el visor de Figma */
   var drag=null;
   function scroller(el,axis){
@@ -96,20 +96,20 @@
     })(root,'');
     return map;
   }
-  var PROPS=['left','top','width','height','opacity','background-color','color','border-radius'];
+  var PROPS=['left','top','width','height','opacity','background-color','color','border-radius','transform'];
   function snap(el){var s=el.style,o={};PROPS.forEach(function(p){o[p]=s.getPropertyValue(p)});return o}
   // valor actual en pantalla (sirve si la capa aún está a mitad de otra transición)
   function live(el){var s=el.style,c=getComputedStyle(el),o={};PROPS.forEach(function(p){o[p]=s.getPropertyValue(p)?c.getPropertyValue(p):''});return o}
 
   /* reemplaza oldEl por newEl con la transición de Figma */
-  function swap(oldEl,newEl,t,onDone){
+  function swap(oldEl,newEl,t,onDone,pre){
     var par=oldEl.parentNode;
-    if(!t||t.type==='INSTANT'||!t.ms){par.replaceChild(newEl,oldEl);onDone&&onDone();return;}
+    if(!t||t.type==='INSTANT'||!t.ms){par.replaceChild(newEl,oldEl);pre&&pre();onDone&&onDone();return;}
     var T=t.ms+'ms '+t.ease;
     if(t.type==='SMART_ANIMATE'){
       var A=layers(oldEl),Bm=layers(newEl), keep=[];
       // el estado viejo queda detrás para desvanecer lo que desaparece
-      par.insertBefore(newEl,oldEl.nextSibling);
+      par.insertBefore(newEl,oldEl.nextSibling);pre&&pre();
       oldEl.style.pointerEvents='none';
       var pairs=[];
       Object.keys(Bm).forEach(function(k){
@@ -121,7 +121,7 @@
       pairs.unshift([oldEl,newEl]);
       // capas que solo cambian de escala (p. ej. la interfaz que se aleja en AR): se animan como un todo
       // con transform, para que textos e íconos escalen juntos; sus hijas no se interpolan por separado
-      var flipped=[];
+      var flipped=[],ghosts=[];
       pairs=pairs.filter(function(p){
         var o=p[0],n=p[1];
         if(flipped.some(function(f){return f.contains(n)}))return false;
@@ -145,17 +145,22 @@
         // si la capa venía invisible, su color no se interpola (evita destellos grises)
         var hid=parseFloat(from.opacity)===0;
         PROPS.forEach(function(pr){if(hid&&(pr==='background-color'||pr==='color'))return;if(from[pr]!==''&&from[pr]!==to[pr]&&!(p[1]===newEl&&(pr==='left'||pr==='top')))n.style.setProperty(pr,from[pr]);});
-        if(!same){var op=to.opacity||'1';n.style.opacity='0';keep.push(function(){n.style.opacity=op;});}
+        if(!same&&o!==oldEl){
+          // cambia la forma: la nueva aparece sobre una copia de la anterior (sin bajón de opacidad)
+          var cp=o.cloneNode(true);cp.style.transition='';cp.style.visibility='';cp.removeAttribute('data-id');cp.classList.add('pe0');
+          n.parentNode.insertBefore(cp,n);ghosts.push(cp);o.style.visibility='hidden';
+          var op=to.opacity||'1';n.style.opacity='0';keep.push(function(){n.style.opacity=op;});
+        }else if(!same){var op2=to.opacity||'1';n.style.opacity='0';keep.push(function(){n.style.opacity=op2;});}
         keep.push(function(){n.style.transition=PROPS.map(function(x){return x+' '+T}).join(',');PROPS.forEach(function(pr){n.style.setProperty(pr,to[pr])});});
       });
       reflow(newEl);
       keep.forEach(function(f){f()});
       oldEl.style.transition='opacity '+T;oldEl.style.opacity='0';
-      after(t.ms,function(){oldEl.remove();Object.keys(Bm).forEach(function(k){Bm[k].style.transition=''});flipped.forEach(function(f){f.style.transformOrigin=''});newEl.style.transition='';onDone&&onDone();});
+      after(t.ms,function(){ghosts.forEach(function(g){g.remove()});oldEl.remove();Object.keys(Bm).forEach(function(k){Bm[k].style.transition=''});flipped.forEach(function(f){f.style.transformOrigin=''});newEl.style.transition='';onDone&&onDone();});
       return;
     }
     // DISSOLVE (y el resto): fundido cruzado
-    par.insertBefore(newEl,oldEl.nextSibling);
+    par.insertBefore(newEl,oldEl.nextSibling);pre&&pre();
     var op=newEl.style.opacity||'1';
     newEl.style.opacity='0';oldEl.style.pointerEvents='none';reflow(newEl);
     newEl.style.transition='opacity '+T;newEl.style.opacity=op;
@@ -195,26 +200,34 @@
     }
     return el.closest('[data-c]');
   }
+  function num(v){return parseFloat(v)||0}
+  function pos(el){return {x:el.dataset.bx!=null?num(el.dataset.bx):num(el.style.left),y:el.dataset.by!=null?num(el.dataset.by):num(el.style.top)}}
+  // la instancia puede estar escalada (p. ej. en VR la interfaz es más chica): la variante se escala igual
+  function scaleOf(box){var c=box.getAttribute('data-c'),cs=B.csize[c];if(!cs)return 1;var w=num(box.dataset.bw||box.style.width),k=w/cs[0];return Math.abs(k-1)<0.02?1:k}
+  function scaled(h,k){return k===1?h:h.replace(/(-?\d*\.?\d+)px/g,function(m,n){return (parseFloat(n)*k).toFixed(2)+'px'})}
   function build(box,d){
-    var orig=box._orig||box, src;
+    var orig=box._orig||box, src, k=box._k||scaleOf(box);
     if(orig.getAttribute('data-c')===d){src=orig._pristine.cloneNode(true);}
-    else{var v=B.variants[d];if(!v)return null;src=html(v.html);}
-    src.style.left=box.style.left;src.style.top=box.style.top;
+    else{var v=B.variants[d];if(!v)return null;src=html(scaled(v.html,k));}
+    var P=pos(box);
+    // la variante toma la esquina de la instancia, como en Figma
+    src.style.left=P.x+'px';src.style.top=P.y+'px';
+    if(box.style.position==='relative'){src.style.position='relative';src.style.flex=box.style.flex;src.style.margin='0';src.style.left='0px';src.style.top='0px';}
     // si la variante tiene otro encuadre, se alinea por la primera capa que ambas comparten
-    // (solo si cambia el tamaño del marco y hay una capa idéntica en tamaño; si no, se respeta la esquina, como Figma)
     var bc=[].slice.call(box.children),sc=[].slice.call(src.children);
-    var resized=Math.abs(parseFloat(box.style.width)-parseFloat(src.style.width))>2||Math.abs(parseFloat(box.style.height)-parseFloat(src.style.height))>2;
-    for(var i=0;resized&&i<bc.length;i++){var nm=bc[i].getAttribute('data-n');if(!nm)continue;
-      var m=sc.filter(function(x){return x.getAttribute('data-n')===nm&&Math.abs(parseFloat(x.style.width)-parseFloat(bc[i].style.width))<2&&Math.abs(parseFloat(x.style.height)-parseFloat(bc[i].style.height))<2})[0];
-      if(m){src.style.left=(parseFloat(box.style.left)+parseFloat(bc[i].style.left)-parseFloat(m.style.left))+'px';
-        src.style.top=(parseFloat(box.style.top)+parseFloat(bc[i].style.top)-parseFloat(m.style.top))+'px';break;}}
-    src._orig=orig;
+    var resized=Math.abs(num(box.style.width)-num(src.style.width))>2||Math.abs(num(box.style.height)-num(src.style.height))>2;
+    for(var i=0;resized&&box.style.position!=='relative'&&i<bc.length;i++){var nm=bc[i].getAttribute('data-n');if(!nm)continue;
+      var m=sc.filter(function(x){return x.getAttribute('data-n')===nm&&Math.abs(num(x.style.width)-num(bc[i].style.width))<2&&Math.abs(num(x.style.height)-num(bc[i].style.height))<2})[0];
+      if(m){var pb=pos(bc[i]),pm=pos(m);src.style.left=(P.x+pb.x-pm.x)+'px';src.style.top=(P.y+pb.y-pm.y)+'px';break;}}
+    src._orig=orig;src._k=k;
     return src;
   }
   function change(el,d,a){
     var box=target(el,d); if(!box||!box.parentNode) return null;
-    if(!box._orig&&!box._pristine) box._pristine=box.cloneNode(true);
+    if(!box._orig&&!box._pristine){box._pristine=box.cloneNode(true);box._k=scaleOf(box);}
     var src=build(box,d); if(!src) return null;
+    // estado anterior intacto, para volver a él al terminar un hover
+    var prev=box.cloneNode(true);prev._orig=box._orig;prev._pristine=box._pristine;prev._k=box._k;src._prev=prev;
     var t=tr(a);swap(box,src,t);
     arm(src,t?t.ms:0);
     return src;
@@ -230,8 +243,9 @@
     var old=curEl, nu=html(s.html);
     cur=id;curEl=nu;fit();
     var t=tr(a);
-    if(old&&old.parentNode){swap(old,nu,t);}else stage.appendChild(nu);
-    home(nu);
+    var osc=old&&old.querySelector('.scr-root'),dx=0,dy=0;
+    if(osc){dx=osc.scrollLeft-num(osc.getAttribute('data-sx'));dy=osc.scrollTop-num(osc.getAttribute('data-sy'));}
+    if(old&&old.parentNode){swap(old,nu,t,null,function(){home(nu,dx,dy)});}else{stage.appendChild(nu);home(nu,0,0);}
     document.body.style.background=bgOf(nu);
     arm(nu,t?t.ms:0);
   }
@@ -292,6 +306,9 @@
       if(clickable)el.style.cursor='pointer';
     });
   }
+  function helpOf(t){while(t&&t!==stage){if(t.textContent&&t.textContent.trim()==='Help?'&&t.getBoundingClientRect().height<120*SCALE+40)return t;t=t.parentElement}return null}
+  stage.addEventListener('click',function(e){if(helpOf(e.target)&&window.openGuide){window.openGuide();return}});
+  stage.addEventListener('mouseover',function(e){var h=helpOf(e.target);if(h)h.style.cursor='pointer'});
   stage.addEventListener('click',function(e){var el=find(e.target,'ON_CLICK');if(el){e.stopPropagation();endHover(true);fire(el,'ON_CLICK',e)}});
   stage.addEventListener('mousedown',function(e){var el=find(e.target,'MOUSE_DOWN');if(el)fire(el,'MOUSE_DOWN',e)});
   stage.addEventListener('mouseup',function(e){var el=find(e.target,'MOUSE_UP');if(el)fire(el,'MOUSE_UP',e)});
@@ -302,24 +319,28 @@
     var el=find(e.target,'MOUSE_ENTER');
     if(el&&!(e.relatedTarget&&el.contains(e.relatedTarget)))fire(el,'MOUSE_ENTER',e);
     var h=find(e.target,'ON_HOVER');
-    if(h&&(!hov||!(hov.el===h||hov.el.contains(h)||h.contains(hov.el)))){
+    if(h&&(!hov||!hov.el.isConnected||!(hov.el===h||hov.el.contains(h)||h.contains(hov.el)))){
       endHover();
       var res=fire(h,'ON_HOVER',e);
-      if(res.length){var sw=res[res.length-1];hov={el:sw[0],a:sw[1]};}
+      if(res.length){var sw=res[res.length-1],tt=tr(sw[1]);hov={el:sw[0],a:sw[1],until:Date.now()+(tt?tt.ms:0)+60};}
     }
   });
   stage.addEventListener('mouseout',function(e){
-    // MOUSE_LEAVE en cada capa que el puntero abandona
     var t=e.target;
-    while(t&&t!==stage){if(t.getAttribute&&list(t,'MOUSE_LEAVE').length&&!(e.relatedTarget&&t.contains(e.relatedTarget)))fire(t,'MOUSE_LEAVE',e);t=t.parentNode}
-    if(hov&&hov.el.isConnected&&!(e.relatedTarget&&hov.el.contains(e.relatedTarget)))endHover();
+    while(t&&t!==stage){if(t.getAttribute&&list(t,'MOUSE_LEAVE').length&&t.isConnected&&!(e.relatedTarget&&t.contains(e.relatedTarget)))fire(t,'MOUSE_LEAVE',e);t=t.parentNode}
+  });
+  window.addEventListener('mousemove',function(e){
+    if(!hov||Date.now()<hov.until)return;
+    if(!hov.el.isConnected){hov=null;return}
+    var r=hov.el.getBoundingClientRect();
+    if(e.clientX<r.left-2||e.clientX>r.right+2||e.clientY<r.top-2||e.clientY>r.bottom+2)endHover();
   });
   function endHover(silent){
     if(!hov)return;var h=hov;hov=null;
-    if(silent||!h.el.isConnected||!h.el._orig)return;
+    if(silent||!h.el.isConnected||!h.el._prev)return;
     // vuelve a la variante de origen con la misma transición
-    var back=h.el._orig._pristine?h.el._orig._pristine.cloneNode(true):null;if(!back)return;
-    back.style.left=h.el._orig.style.left;back.style.top=h.el._orig.style.top;
+    var pv=h.el._prev;if(!pv)return;
+    var back=pv.cloneNode(true);back._orig=pv._orig;back._pristine=pv._pristine;back._k=pv._k;
     swap(h.el,back,tr(h.a));arm(back);
   }
 

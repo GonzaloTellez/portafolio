@@ -40,6 +40,13 @@ def fetch_nodes(ids):
             if not v: print('no node', i); continue
             reg(v['document']); META.update(v.get('components', {})); GEO.add(i)
 
+# nodos ya descargados antes (la API del plan gratuito tiene límite): se reutilizan
+import glob
+for f in sorted(glob.glob(os.path.join(gen.HERE, 'cache', '*.json'))):
+    for i, v in (json.load(open(f)).get('nodes') or {}).items():
+        if v and i not in GEO:
+            reg(v['document']); META.update(v.get('components', {})); GEO.add(i)
+
 screens, variants, overlays = [], [], []
 seen = set()
 queue = [('NAVIGATE', START)]
@@ -68,6 +75,9 @@ for i, c in INST.items():
     if c not in IDX: pass
 
 allroots = screens + variants + overlays
+from collections import Counter
+cnt = Counter(v.get('componentSetId') for v in META.values() if v.get('componentSetId'))
+gen.MULTI.update(k for k, v in META.items() if cnt.get(v.get('componentSetId'), 0) > 1)
 for r in allroots: plan(IDX[r])
 print('svg', len(SVG_IDS), flush=True)
 for r in allroots:
@@ -87,6 +97,7 @@ build = {
     'inter': INTER,
     'inst': INST,
     'sets': {k: v.get('componentSetId') for k, v in META.items()},
+    'csize': {c: [bb(IDX[c])['width'], bb(IDX[c])['height']] for c in set(INST.values()) | set(variants) if c in IDX},
     'fonts': sorted(FONTS),
 }
 json.dump(build, open(os.path.join(OUT, 'build.json'), 'w'))

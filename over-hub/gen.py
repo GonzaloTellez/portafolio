@@ -28,7 +28,7 @@ for n in dest.values():
 def api(url):
     ck = os.path.join(HERE, 'cache', hashlib.md5(url.encode()).hexdigest() + '.json')
     os.makedirs(os.path.dirname(ck), exist_ok=True)
-    if os.path.exists(ck) and time.time() - os.path.getmtime(ck) < 3000: return json.load(open(ck))
+    if os.path.exists(ck): return json.load(open(ck))
     for i in range(12):
         try:
             d = json.load(urllib.request.urlopen(url, timeout=180))
@@ -253,13 +253,16 @@ def live_inter(n):
                 if any(a for a in r.get('actions') or []): return True
     return False
 
-def plan(n, root=True):
+MULTI = set()  # componentes que pertenecen a un set con varias variantes (se animan por partes)
+def plan(n, root=True, fine=False):
     if not vis(n): return
+    if n['type'] in ('INSTANCE', 'COMPONENT') and (n.get('componentId') in MULTI or n['id'] in MULTI): fine = True
     if not root and live_inter(n):
-        for c in n.get('children', []): plan(c, False)
+        for c in n.get('children', []): plan(c, False, fine)
         return
-    if not root and n['type'] != 'TEXT' and svg_ok(n): SVG_IDS.add(n['id']); return
-    for c in n.get('children', []): plan(c, False)
+    if not root and n['type'] != 'TEXT' and svg_ok(n) and (not fine or n['type'] in VEC):
+        SVG_IDS.add(n['id']); return
+    for c in n.get('children', []): plan(c, False, fine)
 
 def export(ids, fmt, scale=2):
     got = {}
@@ -328,6 +331,7 @@ def _render(n, ox, oy, root, extra_cls, mine):
                 MISSING.append(n['id']); return ''
             LOCAL_SVG[n['id']] = r
         st = f"left:{r['x']-ox:.2f}px;top:{r['y']-oy:.2f}px;width:{r['width']:.2f}px;height:{r['height']:.2f}px"
+        attrs += f' data-bx="{x:.2f}" data-by="{y:.2f}" data-pad="{b["x"]-r["x"]:.2f}"'
         op = f";opacity:{n['opacity']:.3f}" if n.get('opacity', 1) < 1 else ''
         sh = [e for m in [n] for e in (m.get('effects') or []) if e.get('visible', True) and e['type'] == 'DROP_SHADOW']
         if sh: op += ';filter:' + ' '.join(f"drop-shadow({e.get('offset',{}).get('x',0)}px {e.get('offset',{}).get('y',0)}px {e.get('radius',0)/2:.1f}px {rgba(e['color'])})" for e in sh)
@@ -428,6 +432,40 @@ def _render(n, ox, oy, root, extra_cls, mine):
             fx = ''.join(render(c, ox, oy) for c in fixed)
             body += fx
         return body
+    lm = n.get('layoutMode')
+    if lm in ('HORIZONTAL', 'VERTICAL') and n.get('layoutWrap') != 'WRAP':
+        hz = lm == 'HORIZONTAL'
+        jm = {'MIN': 'flex-start', 'CENTER': 'center', 'MAX': 'flex-end', 'SPACE_BETWEEN': 'space-between'}
+        st += ['display:flex', 'flex-direction:' + ('row' if hz else 'column'),
+               'justify-content:' + jm.get(n.get('primaryAxisAlignItems', 'MIN'), 'flex-start'),
+               'align-items:' + {'MIN': 'flex-start', 'CENTER': 'center', 'MAX': 'flex-end', 'BASELINE': 'baseline'}.get(n.get('counterAxisAlignItems', 'MIN'), 'flex-start'),
+               f"padding:{n.get('paddingTop',0)}px {n.get('paddingRight',0)}px {n.get('paddingBottom',0)}px {n.get('paddingLeft',0)}px"]
+        if n.get('primaryAxisAlignItems') != 'SPACE_BETWEEN' and n.get('itemSpacing'): st.append(f"gap:{n['itemSpacing']:.2f}px")
+        parts = []
+        for c in kids:
+            hc = render(c, b['x'], b['y'])
+            if not hc: continue
+            if c.get('layoutPositioning') == 'ABSOLUTE': parts.append(hc); continue
+            cb = bb(c)
+            grow = c.get('layoutGrow', 0) == 1 or c.get(('layoutSizingHorizontal' if hz else 'layoutSizingVertical')) == 'FILL'
+            big = (cb['width'] if hz else cb['height']) > 300
+            fx = 'flex:1 1 0;min-width:0;min-height:0' if grow else ('flex:0 1 auto;min-width:0' if big else 'flex:none')
+            if c.get('layoutAlign') == 'STRETCH': fx += ';align-self:stretch'
+            m = re.search(r'data-pad="([\d.-]+)"', hc[:400])
+            pad = float(m.group(1)) if m and hc.startswith('<img') else 0
+            ox_, oy_ = -pad, -pad
+            mt = re.search(r'transform:matrix\(([-\d.]+),([-\d.]+),([-\d.]+),([-\d.]+),', hc[:600])
+            if mt:
+                # hija girada dentro del flujo: se corre para que su caja girada ocupe su lugar
+                A_, B_, C_, D_ = map(float, mt.groups())
+                wq = float(re.search(r'width:([\d.]+)px', hc[:600]).group(1)); hq = float(re.search(r'height:([\d.]+)px', hc[:600]).group(1))
+                xs_ = [A_ * u + C_ * v for u, v in ((0, 0), (wq, 0), (0, hq), (wq, hq))]; ys_ = [B_ * u + D_ * v for u, v in ((0, 0), (wq, 0), (0, hq), (wq, hq))]
+                ox_, oy_ = -min(xs_), -min(ys_)
+            inj = f';position:relative;left:{ox_:.2f}px;top:{oy_:.2f}px;{fx}' + (f';margin:0 {-2*pad:.2f}px {-2*pad:.2f}px 0' if pad else '')
+            i0 = hc.index('style="') + 7; i1 = hc.index('"', i0)
+            parts.append(hc[:i1] + inj + hc[i1:])
+        inner = ''.join(parts)
+        return f'<div class="{cls}" {attrs} style="{";".join(st)}">{inner}</div>'
     inner = ''.join(render(c, b['x'], b['y']) for c in kids)
     # como en Figma, un marco sin relleno no atrapa clics: pasan a lo que está debajo
     if not any(x.startswith(('background', 'outline', 'border', 'box-shadow')) for x in st) and not n.get('interactions'):
