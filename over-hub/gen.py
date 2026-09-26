@@ -112,11 +112,11 @@ def image_file(ref):
     im = Image.open(raw)
     im.load()
     # tamaño máximo razonable para web
-    mx = 1800
+    mx = 4096  # resolución original de Figma (los fondos 360 se ven a más de 4000 px de ancho)
     if max(im.size) > mx:
         s = mx / max(im.size); im = im.resize((round(im.width * s), round(im.height * s)), Image.LANCZOS)
     name = hashlib.md5(ref.encode()).hexdigest()[:10] + '.webp'
-    im.save(os.path.join(AS, name), 'WEBP', quality=82, method=6)
+    im.save(os.path.join(AS, name), 'WEBP', quality=90, method=6)
     IMGS[ref] = 'a/' + name
     return IMGS[ref]
 
@@ -403,7 +403,7 @@ def _render(n, ox, oy, root, extra_cls, mine):
                 cb = bb(c)
                 # panorámica equirectangular (2:1) que envuelve la escena: se marca para girar 360°
                 if cb['height'] and abs(cb['width'] / cb['height'] - 2) < 0.06 and any(has_img(m) for m in sub(c)) and cb['width'] > w * 2:
-                    r = r.replace('<div ', '<div data-pano="1" ', 1)
+                    pass  # sin giro de 360: los fondos no empalman, la vista llega a un tope
                 return r
             inner = ''.join(rc(c) for c in moving)
             ov = f"overflow:{'auto' if hz else 'hidden'} {'auto' if vt else 'hidden'}"
