@@ -22,7 +22,7 @@ page = f'''<!doctype html>
 <style>
 html,body{{margin:0;height:100%;overflow:hidden;background:#141414}}
 #app{{position:fixed;inset:0;overflow:hidden}}
-#stage{{position:absolute;left:0;top:0;transform-origin:0 0}}
+#stage{{position:absolute;left:0;top:0;transform-origin:0 0;cursor:default;user-select:none;-webkit-user-select:none}}#stage .f{{cursor:inherit}}#stage .hot,#stage .hot *{{cursor:pointer}}
 .f{{position:absolute;box-sizing:border-box;margin:0;pointer-events:auto}}.pe0{{pointer-events:none}}.gone,.gone *{{pointer-events:none!important}}
 .t{{white-space:normal;overflow-wrap:break-word;-webkit-font-smoothing:antialiased}}
 img.f{{display:block;user-select:none;-webkit-user-drag:none}}

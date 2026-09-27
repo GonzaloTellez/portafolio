@@ -456,8 +456,13 @@ def _render(n, ox, oy, root, extra_cls, mine):
         i = kids.index(mk[0])
         m = mask_css(mk[0], n)
         inner = ''.join(render(c, b['x'], b['y']) for c in kids[:i])
-        masked = ''.join(render(c, b['x'], b['y']) for c in kids[i + 1:])
-        inner += f'<div class="f" style="left:0;top:0;width:{w:.2f}px;height:{h:.2f}px;{m}">{masked}</div>'
+        mb = bb(mk[0])
+        def inside(c):
+            cb = bb(c); return cb['x'] >= mb['x'] - 1 and cb['y'] >= mb['y'] - 1 and cb['x'] + cb['width'] <= mb['x'] + mb['width'] + 1 and cb['y'] + cb['height'] <= mb['y'] + mb['height'] + 1
+        # lo que sobresale de la máscara (p. ej. el + de los avatares) se ve completo, como en el prototipo de Figma
+        masked = ''.join(render(c, b['x'], b['y']) for c in kids[i + 1:] if inside(c))
+        outside = ''.join(render(c, b['x'], b['y']) for c in kids[i + 1:] if not inside(c))
+        inner += f'<div class="f" style="left:0;top:0;width:{w:.2f}px;height:{h:.2f}px;{m}">{masked}</div>' + outside
         return f'<div class="{cls}" {attrs} style="{";".join(st)}">{inner}</div>'
     scroll = n.get('overflowDirection') in ('VERTICAL_SCROLLING', 'BOTH_DIRECTIONS', 'HORIZONTAL_SCROLLING') and n.get('clipsContent')
     if n.get('clipsContent') and not scroll: st.append('overflow:hidden')
@@ -593,7 +598,12 @@ def svg_for(root, fname_out, local=False):
     for m in sub(root):
         if m.get('strokes') and m.get('strokeWeight'): pad = max(pad, m['strokeWeight'])
     pad = math.ceil(pad) + 1
-    X, Y, W, H = b['x'] - pad, b['y'] - pad, b['width'] + 2 * pad, b['height'] + 2 * pad
+    # lo dibujado puede sobresalir del marco (p. ej. el + de los avatares): el lienzo toma los límites reales
+    xs = [b['x'], b['x'] + b['width']]; ys = [b['y'], b['y'] + b['height']]
+    for m in sub(root):
+        r_ = m.get('absoluteRenderBounds')
+        if r_ and vis(m): xs += [r_['x'], r_['x'] + r_['width']]; ys += [r_['y'], r_['y'] + r_['height']]
+    X, Y = min(xs) - pad, min(ys) - pad; W, H = max(xs) - min(xs) + 2 * pad, max(ys) - min(ys) + 2 * pad
     base = None
     if local and ABS.get(root['id']) is not None:
         base = _inv(ABS[root['id']]); X, Y = -pad, -pad; W, H = root['size']['x'] + 2 * pad, root['size']['y'] + 2 * pad

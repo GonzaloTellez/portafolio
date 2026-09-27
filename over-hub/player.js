@@ -317,11 +317,16 @@
   }
   /* como en Figma: los textos e imágenes que la instancia cambió respecto de su componente se conservan en la otra variante */
   function overrides(orig,src,k){
-    var inst=orig._pristine||orig,dv=B.variants[inst.getAttribute('data-c')];if(!dv)return;
-    var md=(B.screens[cur]||{}).mode,D=html(scaled((dv.m&&dv.m[md])||dv.html,k)),LI=layers(inst),LD=layers(D),LS=layers(src);
+    var inst=orig._pristine||orig,dv=B.variants[inst.getAttribute('data-c')];
+    // sin la versión base del componente, se compara contra la propia variante: todo lo distinto se conserva
+    var md=(B.screens[cur]||{}).mode,D=dv?html(scaled((dv.m&&dv.m[md])||dv.html,k)):src,LI=layers(inst),LD=layers(D),LS=layers(src);
     Object.keys(LS).forEach(function(key){var i=LI[key],d=LD[key],s=LS[key];if(!i||!d)return;
       if(s.classList.contains('t')&&i.classList.contains('t')&&d.classList.contains('t')){if(i.textContent!==d.textContent)s.innerHTML=i.innerHTML;}
       else if(s.tagName==='IMG'&&i.tagName==='IMG'&&d.tagName==='IMG'){if(/\.(webp|png|jpe?g)$/.test(i.getAttribute('src'))&&i.getAttribute('src')!==d.getAttribute('src'))s.setAttribute('src',i.getAttribute('src'));}
+      else if(s.tagName==='IMG'&&i.tagName!=='IMG'&&/url\([^)]*\.webp/.test(i.style.background||i.style.backgroundImage)){
+        // foto de la instancia (relleno con máscara) donde la variante tiene un marcador: se usa la capa de la instancia en la posición de la variante
+        var cp=i.cloneNode(true);['left','top','width','height','position','flex','margin','transform','transform-origin'].forEach(function(pr){cp.style.setProperty(pr,s.style.getPropertyValue(pr))});
+        cp.removeAttribute('data-id');s.parentNode.replaceChild(cp,s);}
       else if(i.style.backgroundImage!==d.style.backgroundImage&&/\.webp/.test(i.style.backgroundImage)){s.style.backgroundImage=i.style.backgroundImage;s.style.backgroundSize=i.style.backgroundSize;s.style.backgroundPosition=i.style.backgroundPosition;}
     });
   }
@@ -483,7 +488,7 @@
       // la manito solo si el clic produce algo visible (no si apenas guarda una variable)
       // manito en todo punto interactivo, como en el visor de Figma (clic, hover, presionar)
       var clickable=(B.inter[el.getAttribute('data-id')]||[]).some(function(x){return x.trigger.type!=='AFTER_TIMEOUT'&&(x.actions||[]).some(function(a){return visible(a)||(a&&a.type==='SET_VARIABLE'&&x.trigger.type==='ON_CLICK')})});
-      if(clickable)el.style.cursor='pointer';
+      if(clickable)el.classList.add('hot');
     });
   }
   function helpOf(t){while(t&&t!==stage){if(t.textContent&&t.textContent.trim()==='Help?'&&t.getBoundingClientRect().height<120*SCALE+40)return t;t=t.parentElement}return null}
