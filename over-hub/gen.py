@@ -506,6 +506,11 @@ def _render(n, ox, oy, root, extra_cls, mine):
                 xs_ = [A_ * u + C_ * v for u, v in ((0, 0), (wq, 0), (0, hq), (wq, hq))]; ys_ = [B_ * u + D_ * v for u, v in ((0, 0), (wq, 0), (0, hq), (wq, hq))]
                 ox_, oy_ = -min(xs_), -min(ys_)
             inj = f';position:relative;left:{ox_:.2f}px;top:{oy_:.2f}px;{fx}' + (f';margin:0 {-2*pad:.2f}px {-2*pad:.2f}px 0' if pad else '')
+            rq = re.search(r'transform:rotate\(([-\d.]+)deg\)', hc[:700])
+            if rq and not pad and abs(abs(float(rq.group(1))) % 180 - 90) < 1:
+                # girada 90°: en el auto layout ocupa su caja girada (como en Figma), no la original
+                wq = float(re.search(r'width:([\d.]+)px', hc[:700]).group(1)); hq = float(re.search(r'height:([\d.]+)px', hc[:700]).group(1))
+                inj += f';margin:{(wq-hq)/2:.2f}px {(hq-wq)/2:.2f}px'
             i0 = hc.index('style="') + 7; i1 = hc.index('"', i0)
             parts.append(hc[:i1] + inj + hc[i1:])
         inner = ''.join(parts)

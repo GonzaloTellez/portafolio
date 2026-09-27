@@ -123,13 +123,17 @@
       oldEl.style.pointerEvents='none';
       // auto layout congelado: cada capa se interpola desde su posición real, sin que el flex la recoloque
       var saved=absolutize(newEl);absolutize(oldEl);
+      var oldLive=live(oldEl);
       if(opts&&opts.over){
         // en un cambio de variante, lo que desaparece se desvanece por encima del fondo nuevo
-        var shell=oldEl.cloneNode(false);shell.removeAttribute('data-id');shell.removeAttribute('data-c');shell.classList.add('pe0');
-        par.insertBefore(shell,newEl);par.insertBefore(oldEl,newEl.nextSibling);
-        oldEl.style.background='none';oldEl.style.boxShadow='none';oldEl.style.filter='none';
-        ghosts.push(shell);shell.style.transition='opacity '+T;
-        keep.push(function(){shell.style.opacity='0'});
+        par.insertBefore(oldEl,newEl.nextSibling);
+        if(getComputedStyle(oldEl).backgroundImage!=='none'){
+          // un fondo degradado no se interpola: se funde por detrás
+          var shell=oldEl.cloneNode(false);shell.removeAttribute('data-id');shell.removeAttribute('data-c');shell.classList.add('pe0');
+          par.insertBefore(shell,newEl);ghosts.push(shell);shell.style.transition='opacity '+T;
+          keep.push(function(){shell.style.opacity='0'});
+        }
+        oldEl.style.background='none';oldEl.style.boxShadow='none';oldEl.style.filter='none';oldEl.style.outline='none';oldEl.style.border='none';
       }
       var pairs=[];
       Object.keys(Bm).forEach(function(k){
@@ -174,13 +178,15 @@
       });
       keep=keep.filter(function(){return true});
       pairs.forEach(function(p){
-        var o=p[0],n=p[1],from=live(o),to=snap(n);
+        var o=p[0],n=p[1],from=o===oldEl?oldLive:live(o),to=snap(n);
         var morph=false,same=o.tagName===n.tagName&&(o.tagName!=='IMG'||o.getAttribute('src')===n.getAttribute('src'));
         if(!same&&o.tagName==='IMG'&&n.tagName==='IMG'){
           // misma figura a otra escala (p. ej. botones que se encogen): se anima el tamaño, sin fundido
           var ra=num(o.style.width)/Math.max(1,num(o.style.height)),rb=num(n.style.width)/Math.max(1,num(n.style.height));
           var rs=num(n.style.width)/Math.max(1,num(o.style.width));
           if(Math.abs(ra-rb)<0.1*rb&&Math.abs(rs-1)>0.05)morph=true;
+          // misma forma y casi el mismo tamaño (solo cambia el tono): cambio directo, sin superponer dos versiones translúcidas
+          else if(Math.abs(ra-rb)<0.05*rb&&Math.abs(rs-1)<=0.05)same=true;
         }
         if(same&&o!==oldEl) o.style.visibility='hidden';
         // si la capa venía invisible, su color no se interpola (evita destellos grises)
@@ -221,12 +227,13 @@
       }
       return;
     }
-    if(a.type==='SET_VARIABLE'){VARS[a.variableId]=val(a.variableValue);return;}
+    if(a.type==='SET_VARIABLE'){var pv=VARS[a.variableId];VARS[a.variableId]=val(a.variableValue);if(!!pv!==!!VARS[a.variableId])react(a.variableId);return;}
     if(a.type==='BACK'){if(ovs.length)closeOv();return;}
     if(a.type==='CLOSE'){closeOv();return;}
     if(a.type==='URL'&&a.url){window.open(a.url,'_blank','noopener');return;}
     if(a.type!=='NODE') return;
     var nav=a.navigation, d=a.destinationId;
+    if(CAPTURE&&nav==='NAVIGATE'){CAPTURE.dest=d;CAPTURE.a=a;return;}
     if(nav==='NAVIGATE'||nav==='SWAP'&&!ovs.length) show(d,a);
     else if(nav==='OVERLAY') openOv(d,a);
     else if(nav==='SWAP'){closeOv(null,true);openOv(d,a);}
@@ -234,6 +241,22 @@
     else if(nav==='SCROLL_TO'){var t=stage.querySelector('[data-id="'+d+'"]');if(t)t.scrollIntoView({behavior:'smooth',block:'nearest'});}
   }
 
+  /* variantes gemelas elegidas por una variable (p. ej. el panel de info dentro del post o al costado según la barra lateral):
+     si la variable cambia con el panel abierto, el panel pasa a su gemela con una animación suave */
+  var TWINS=null;
+  function twins(){if(TWINS)return TWINS;TWINS={};
+    Object.keys(B.inter).forEach(function(id){(B.inter[id]||[]).forEach(function(r){var got={};
+      (r.actions||[]).forEach(function(a){if(!a||a.type!=='CONDITIONAL')return;(a.conditionalBlocks||[]).forEach(function(bl){var c=bl.condition&&bl.condition.value;
+        if(!c||c.expressionFunction!=='EQUALS')return;var ar=c.expressionArguments||[],v=ar[0]&&ar[0].value,bv=ar[1]&&ar[1].value;
+        if(!v||v.type!=='VARIABLE_ALIAS'||typeof bv!=='boolean')return;
+        (bl.actions||[]).forEach(function(x){if(x&&x.type==='NODE'&&x.navigation==='CHANGE_TO'){(got[v.id]=got[v.id]||{})[bv]=x.destinationId}})})});
+      Object.keys(got).forEach(function(vid){var g=got[vid];if(g[true]&&g[false]&&g[true]!==g[false]){var T=TWINS[vid]=TWINS[vid]||{};T[g[true]]=[g[false],true];T[g[false]]=[g[true],false];}});
+    })});
+    return TWINS;}
+  function react(vid){var T=twins()[vid];if(!T||!curEl)return;var now=!!VARS[vid];
+    [].forEach.call(curEl.querySelectorAll('[data-c]'),function(e){var d=e.getAttribute('data-c'),tw=T[d];if(!tw||e._leaving||!e.isConnected)return;
+      if(tw[1]===now)return; // ya es la versión que corresponde al nuevo valor
+      change(e,tw[0],{transition:{type:'SMART_ANIMATE',duration:.5,easing:{type:'CUSTOM_CUBIC_BEZIER',easingFunctionCubicBezier:{x1:.22,y1:1,x2:.36,y2:1}}}});});}
   /* cambiar a otra variante: se reemplaza la instancia más cercana del mismo set */
   function target(el,d){
     var set=B.sets[d], box=el;
@@ -250,13 +273,20 @@
   function getComputedRGB(c){var d=document.createElement('i');d.style.color=c;document.body.appendChild(d);var r=getComputedStyle(d).color.match(/[\d.]+/g);d.remove();return r&&r.map(Number)}
   function pos(el){return {x:el.dataset.bx!=null?num(el.dataset.bx):num(el.style.left),y:el.dataset.by!=null?num(el.dataset.by):num(el.style.top)}}
   // la instancia puede estar escalada (p. ej. en VR la interfaz es más chica): la variante se escala igual
-  function scaleOf(box){var c=box.getAttribute('data-c'),cs=B.csize[c];if(!cs)return 1;var w=num(box.dataset.bw||box.style.width),k=w/cs[0];return Math.abs(k-1)<0.02?1:k}
+  function scaleOf(box){var c=box.getAttribute('data-c'),cs=B.csize[c];if(!cs)return 1;var w=num(box.dataset.bw||box.style.width),h=num(box.style.height),k=w/cs[0],ky=h/cs[1];
+    // instancia redimensionada (no escalada): otro ancho con el mismo alto -> la variante conserva su escala
+    if(h&&Math.abs(k-ky)>0.03)return 1;
+    return Math.abs(k-1)<0.02?1:k}
   function scaled(h,k){return k===1?h:h.replace(/(-?\d*\.?\d+)px/g,function(m,n){return (parseFloat(n)*k).toFixed(2)+'px'})}
   function build(box,d){
     var orig=box._orig||box, src, k=box._k||scaleOf(box);
     if(orig.getAttribute('data-c')===d){src=orig._pristine.cloneNode(true);}
     else{var v=B.variants[d];if(!v)return null;var md=(B.screens[cur]||{}).mode;src=html(scaled((v.m&&v.m[md])||v.html,k));}
     overrides(orig,src,k);
+    // instancia redimensionada: la variante del mismo tamaño de base toma el tamaño de la instancia
+    var oc=B.csize[(orig._pristine||orig).getAttribute('data-c')],dc=B.csize[d];
+    if(k===1&&oc&&dc){var bw=num((orig._pristine||orig).style.width),bh=num((orig._pristine||orig).style.height);
+      if(Math.abs(dc[0]-oc[0])<1&&Math.abs(bw-oc[0])>1)src.style.width=bw+'px';if(Math.abs(dc[1]-oc[1])<1&&Math.abs(bh-oc[1])>1)src.style.height=bh+'px';}
     var P=pos(box);
     // la variante toma la esquina de la instancia, como en Figma
     src.style.left=P.x+'px';src.style.top=P.y+'px';
@@ -328,8 +358,55 @@
       nb.parentNode.replaceChild(src,nb);});
   }
   /* pantallas */
+  /* entrar y salir de AR/VR: en Figma son dos saltos rápidos (IN/BACK de 0,2 s) con la interfaz desarmada en medio.
+     Aquí es una sola transición continua: la interfaz plana se posa en el espacio mientras el entorno aparece, y al salir, al revés */
+  var CAPTURE=null;
+  function autoDest(id){var r=(B.inter[id]||[]).filter(function(x){return x.trigger.type==='AFTER_TIMEOUT'});if(!r.length)return null;
+    CAPTURE={};r.forEach(function(x){(x.actions||[]).forEach(function(a){run(a,null)})});var c=CAPTURE;CAPTURE=null;return c.dest?c:null}
+  function scrInner(root){var sc=root.querySelector('.scr-root');return sc&&sc.firstElementChild}
+  function xrParts(root){var inner=scrInner(root);if(!inner)return null;var env=[],ui=[],panel=null;
+    [].forEach.call(inner.children,function(c){var n=c.getAttribute('data-n')||'';if(/backgrounds/i.test(n))env.push(c);else{ui.push(c);if(n==='background')panel=c;}});
+    [].forEach.call(root.children,function(c){if(!c.classList.contains('scr-root'))ui.push(c)});
+    return {env:env,ui:ui,panel:panel}}
+  function stageRect(el){var r=el.getBoundingClientRect(),q=stage.getBoundingClientRect();return {x:(r.left-q.left)/SCALE,y:(r.top-q.top)/SCALE,w:r.width/SCALE,h:r.height/SCALE}}
+  var XE='cubic-bezier(.65,.02,.2,1)',XS='cubic-bezier(.22,1,.36,1)';
+  function xrShow(id,dir){
+    var s=B.screens[id];if(!s)return;
+    timers.forEach(clearTimeout);timers=[];while(ovs.length)closeOv(null,true);
+    [].slice.call(stage.children).forEach(function(c){if(c!==curEl&&!c.classList.contains('ovl'))c.remove()});
+    var old=curEl,nu=html(s.html);cur=id;curEl=nu;fit();if(old)carry(old,nu);
+    old.classList.add('gone');
+    var W=num(nu.style.width)||1920,H=num(nu.style.height)||1080,D=1150;
+    if(dir==='in'){
+      stage.insertBefore(nu,old);home(nu,0,0);
+      var P=xrParts(nu),R=P&&P.panel?stageRect(P.panel):{x:W*.08,y:H*.08,w:W*.84,h:H*.84};
+      P.env.forEach(function(e){e.style.opacity='0';e.style.filter='blur(18px)';e.style.transform='scale(1.1)';e.style.transformOrigin='50% 50%'});
+      P.ui.forEach(function(e){e._op=e.style.opacity;e.style.opacity='0'});
+      old.style.transformOrigin='0 0';old.style.overflow='hidden';old.style.boxShadow='0 0 0 rgba(0,0,0,0)';reflow(old);
+      old.style.transition='transform '+D+'ms '+XE+',border-radius '+D+'ms '+XE+',box-shadow '+D+'ms '+XE+',opacity 280ms ease '+(D-330)+'ms';
+      old.style.transform='translate('+R.x+'px,'+R.y+'px) scale('+(R.w/W)+','+(R.h/H)+')';old.style.borderRadius=(20*W/R.w)+'px';
+      old.style.boxShadow='0 '+(30*W/R.w)+'px '+(80*W/R.w)+'px rgba(0,0,0,.35)';old.style.opacity='0';
+      P.env.forEach(function(e){e.style.transition='opacity 700ms ease 120ms,filter '+(D+150)+'ms '+XS+',transform '+(D+250)+'ms '+XS;e.style.opacity='';e.style.filter='';e.style.transform=''});
+      P.ui.forEach(function(e){e.style.transition='opacity 300ms ease '+(D-360)+'ms';e.style.opacity=e._op||''});
+      setTimeout(function(){old.remove();P.env.concat(P.ui).forEach(function(e){e.style.transition='';e.style.filter='';e.style.transform=''})},D+300);
+    }else{
+      var Q=xrParts(old),R2=Q&&Q.panel?stageRect(Q.panel):{x:W*.08,y:H*.08,w:W*.84,h:H*.84};
+      stage.appendChild(nu);home(nu,0,0);
+      nu.style.transformOrigin='0 0';nu.style.overflow='hidden';nu.style.opacity='0';
+      nu.style.transform='translate('+R2.x+'px,'+R2.y+'px) scale('+(R2.w/W)+','+(R2.h/H)+')';nu.style.borderRadius=(20*W/R2.w)+'px';reflow(nu);
+      nu.style.transition='opacity 260ms ease,transform '+D+'ms '+XE+',border-radius '+D+'ms '+XE;
+      nu.style.opacity='1';nu.style.transform='translate(0px,0px) scale(1,1)';nu.style.borderRadius='0px';
+      if(Q){Q.ui.forEach(function(e){e.style.transition='opacity 240ms ease';e.style.opacity='0'});
+        Q.env.forEach(function(e){e.style.transformOrigin='50% 50%';e.style.transition='opacity 900ms ease 150ms,filter '+D+'ms '+XE+',transform '+D+'ms '+XE;e.style.opacity='0';e.style.filter='blur(18px)';e.style.transform='scale(1.1)'});}
+      setTimeout(function(){old.remove();nu.style.transition='';nu.style.transform='';nu.style.transformOrigin='';nu.style.overflow='';nu.style.borderRadius='';nu.style.opacity=''},D+120);
+    }
+    arm(nu,D);
+  }
   function show(id,a){
     var s=B.screens[id];if(!s)return;
+    var wasXR=!!(curEl&&curEl.querySelector('.scr-root'));
+    if(s.name==='IN'&&curEl&&!wasXR){var c=autoDest(id);if(c&&B.screens[c.dest]){xrShow(c.dest,'in');return;}}
+    if(s.name==='BACK'&&wasXR){var c2=autoDest(id);if(c2&&B.screens[c2.dest]){xrShow(c2.dest,'out');return;}}
     timers.forEach(clearTimeout);timers=[];
     while(ovs.length)closeOv(null,true);
     // pantallas que aún se estaban yendo: fuera de inmediato
@@ -404,7 +481,8 @@
         timers.push(setTimeout(function(){if(el.isConnected)(x.actions||[]).forEach(function(a){run(a,el)})},delay+Math.max(1,(x.trigger.timeout||0)*1000)));
       });
       // la manito solo si el clic produce algo visible (no si apenas guarda una variable)
-      var clickable=list(el,'ON_CLICK').some(function(x){return (x.actions||[]).some(visible)});
+      // manito en todo punto interactivo, como en el visor de Figma (clic, hover, presionar)
+      var clickable=(B.inter[el.getAttribute('data-id')]||[]).some(function(x){return x.trigger.type!=='AFTER_TIMEOUT'&&(x.actions||[]).some(function(a){return visible(a)||(a&&a.type==='SET_VARIABLE'&&x.trigger.type==='ON_CLICK')})});
       if(clickable)el.style.cursor='pointer';
     });
   }
