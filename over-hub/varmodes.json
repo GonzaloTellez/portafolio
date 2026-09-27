@@ -1,0 +1,122 @@
+{
+"VariableID:598:2924": {
+"dark": "#000000",
+"dim": "#0d142e",
+"light": "#f1f2f4"
+},
+"VariableID:368:1150": {
+"dark": "#100f0a",
+"dim": "#12183a",
+"light": "#ffffff"
+},
+"VariableID:368:1146": {
+"dark": "#e8e8e8",
+"dim": "#f1f2f4",
+"light": "#000000"
+},
+"VariableID:461:12059": {
+"dark": "#27debf",
+"dim": "#27debf",
+"light": "#4723a6"
+},
+"VariableID:368:1388": {
+"dark": "#e4caef",
+"dim": "#e4caef",
+"light": "#de5f60"
+},
+"VariableID:368:1153": {
+"dark": "#2a2266",
+"dim": "#e4caef",
+"light": "#de5f60"
+},
+"VariableID:374:3312": {
+"dark": "#e8e8e8",
+"dim": "#12183a",
+"light": "#ffffff"
+},
+"VariableID:368:1152": {
+"dark": "#e8e8e8",
+"dim": "#3f4c9b",
+"light": "#2a2266"
+},
+"VariableID:368:1148": {
+"dark": "#100f0a",
+"dim": "#f1f2f4",
+"light": "#ffffff"
+},
+"VariableID:368:1149": {
+"dark": "#000000",
+"dim": "#0d142e",
+"light": "#f1f2f4"
+},
+"VariableID:368:1386": {
+"dark": "#e4caef",
+"dim": "#3f4c9b",
+"light": "#000000"
+},
+"VariableID:374:4906": {
+"dark": "#e4caef",
+"dim": "#e4caef",
+"light": "#000000"
+},
+"VariableID:368:1151": {
+"dark": "#e8e8e8",
+"dim": "#f1f2f4",
+"light": "#ffffff"
+},
+"VariableID:426:6733": {
+"dark": "#2a2266",
+"dim": "#3f4c9b",
+"light": "#2a2266"
+},
+"VariableID:531:1328": {
+"dark": "#2a2266",
+"dim": "#f1f2f4",
+"light": "#de5f60"
+},
+"VariableID:56:2": {
+"dark": "#ffffff",
+"dim": "#ffffff",
+"light": "#ffffff"
+},
+"VariableID:374:1684": {
+"dark": "#100f0a",
+"dim": "#0d142e",
+"light": "#000000"
+},
+"VariableID:368:1154": {
+"dark": "#e4caef",
+"dim": "#e4caef",
+"light": "#e4caef"
+},
+"VariableID:598:2920": {
+"dark": "#0d142e",
+"dim": "#0d142e",
+"light": "#0d142e"
+},
+"VariableID:56:29": {
+"dark": "#f1f2f4",
+"dim": "#f1f2f4",
+"light": "#f1f2f4"
+},
+"VariableID:436:2503": {
+"light": "#e4caef",
+"dim": "#0d142e",
+"dark": "#000000"
+},
+"VariableID:433:6805": {
+"light": "#ffffff",
+"dim": "#f1f2f4",
+"dark": "#e4caef"
+},
+"VariableID:426:6732": {
+"light": "#000000",
+"dim": "#e4caef",
+"dark": "#e4caef"
+},
+"VariableID:426:6734": {
+"light": "#ffffff",
+"dim": "#12183a",
+"dark": "#2a2266"
+}
+}
