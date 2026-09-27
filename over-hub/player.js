@@ -375,15 +375,28 @@
     return {env:env,ui:ui,panel:panel}}
   function stageRect(el){var r=el.getBoundingClientRect(),q=stage.getBoundingClientRect();return {x:(r.left-q.left)/SCALE,y:(r.top-q.top)/SCALE,w:r.width/SCALE,h:r.height/SCALE}}
   var XE='cubic-bezier(.65,.02,.2,1)',XS='cubic-bezier(.22,1,.36,1)';
+  // en AR/VR hay un menú flotante fijo: el del 2D (que se movería con la vista) sobra
+  function dedupeFab(root){if(!root.querySelector(':scope>[data-n="Floating menu"]'))return;
+    [].forEach.call(root.querySelectorAll('.scr-root [data-c]'),function(e){if(((e._orig||e).getAttribute('data-n'))==='Floating Action Button')e.style.display='none'})}
+  // lo que se estaba leyendo sigue en su lugar (scroll del feed y de listas)
+  function keepLists(old,nu){var m={};[].forEach.call(old.querySelectorAll('.scr:not(.scr-root)'),function(o){if(o.scrollTop)m[o.getAttribute('data-n')]=o.scrollTop});
+    [].forEach.call(nu.querySelectorAll('.scr:not(.scr-root)'),function(n){var v=m[n.getAttribute('data-n')];if(v)n.scrollTop=v})}
+  /* al salir de AR/VR, Figma pasa por la pantalla 2D aunque enseguida entre al otro modo: la 2D se prepara oculta
+     y, si llega otra entrada, se pasa directo de un entorno al otro sin destello */
+  var HOLD=null;
+  function holdOut(dest){var old=curEl,s=B.screens[dest];timers.forEach(clearTimeout);timers=[];
+    var nu=html(s.html);cur=dest;curEl=nu;fit();carry(old,nu);dedupeFab(nu);nu.style.visibility='hidden';nu.style.pointerEvents='none';
+    stage.insertBefore(nu,old);home(nu,0,0);keepLists(old,nu);arm(nu,0);
+    HOLD={old:old,nu:nu,t:setTimeout(function(){var h=HOLD;HOLD=null;h.nu.remove();curEl=h.old;cur=h.old.getAttribute('data-id');xrShow(dest,'out')},900)};}
   function xrShow(id,dir){
     var s=B.screens[id];if(!s)return;
     timers.forEach(clearTimeout);timers=[];while(ovs.length)closeOv(null,true);
     [].slice.call(stage.children).forEach(function(c){if(c!==curEl&&!c.classList.contains('ovl'))c.remove()});
-    var old=curEl,nu=html(s.html);cur=id;curEl=nu;fit();if(old)carry(old,nu);
+    var old=curEl,nu=html(s.html);cur=id;curEl=nu;fit();if(old)carry(old,nu);dedupeFab(nu);
     old.classList.add('gone');
     var W=num(nu.style.width)||1920,H=num(nu.style.height)||1080,D=1150;
     if(dir==='in'){
-      stage.insertBefore(nu,old);home(nu,0,0);
+      stage.insertBefore(nu,old);home(nu,0,0);keepLists(old,nu);
       var P=xrParts(nu),R=P&&P.panel?stageRect(P.panel):{x:W*.08,y:H*.08,w:W*.84,h:H*.84};
       P.env.forEach(function(e){e.style.opacity='0';e.style.filter='blur(18px)';e.style.transform='scale(1.1)';e.style.transformOrigin='50% 50%'});
       P.ui.forEach(function(e){e._op=e.style.opacity;e.style.opacity='0'});
@@ -394,9 +407,23 @@
       P.env.forEach(function(e){e.style.transition='opacity 700ms ease 120ms,filter '+(D+150)+'ms '+XS+',transform '+(D+250)+'ms '+XS;e.style.opacity='';e.style.filter='';e.style.transform=''});
       P.ui.forEach(function(e){e.style.transition='opacity 300ms ease '+(D-360)+'ms';e.style.opacity=e._op||''});
       setTimeout(function(){old.remove();P.env.concat(P.ui).forEach(function(e){e.style.transition='';e.style.filter='';e.style.transform=''})},D+300);
+    }else if(dir==='xx'){
+      // de un entorno a otro (AR <-> VR): la misma ventana se desplaza y cambia de tamaño mientras el entorno se funde
+      var so=old.querySelector('.scr-root');stage.appendChild(nu);home(nu,0,0);keepLists(old,nu);
+      var nbg=nu.style.background,nbc=nu.style.backgroundColor;nu.style.background='transparent';
+      var Po=xrParts(old),Pn=xrParts(nu),Ro=Po&&Po.panel?stageRect(Po.panel):null,Rn=Pn&&Pn.panel?stageRect(Pn.panel):null;
+      Pn.env.forEach(function(e){e.style.opacity='0';e.style.transform='scale(1.06)';e.style.transformOrigin='50% 50%'});
+      var fixedN=[].slice.call(nu.children).filter(function(c){return !c.classList.contains('scr-root')});
+      Pn.ui.forEach(function(e){e._op=e.style.opacity;if(fixedN.indexOf(e)>=0){e.style.opacity='0';return}
+        if(Ro&&Rn){var r=stageRect(e),k=Ro.w/Rn.w,tx=Ro.x+k*(r.x-Rn.x)-r.x,ty=Ro.y+k*(r.y-Rn.y)-r.y;e.style.transformOrigin='0 0';e.style.transform='translate('+tx+'px,'+ty+'px) scale('+k+')';}});
+      reflow(nu);
+      Pn.env.forEach(function(e){e.style.transition='opacity 700ms ease,transform '+D+'ms '+XS;e.style.opacity='';e.style.transform=''});
+      Pn.ui.forEach(function(e){e.style.transition='transform '+D+'ms '+XS+',opacity 400ms ease '+(fixedN.indexOf(e)>=0?D-300:0)+'ms';e.style.transform='';e.style.opacity=e._op||''});
+      if(Po)Po.ui.forEach(function(e){e.style.transition='opacity 250ms ease';e.style.opacity='0'});
+      setTimeout(function(){old.remove();nu.style.background=nbg;if(nbc)nu.style.backgroundColor=nbc;Pn.env.concat(Pn.ui).forEach(function(e){e.style.transition='';e.style.transformOrigin=''})},D+120);
     }else{
       var Q=xrParts(old),R2=Q&&Q.panel?stageRect(Q.panel):{x:W*.08,y:H*.08,w:W*.84,h:H*.84};
-      stage.appendChild(nu);home(nu,0,0);
+      stage.appendChild(nu);home(nu,0,0);keepLists(old,nu);
       nu.style.transformOrigin='0 0';nu.style.overflow='hidden';nu.style.opacity='0';
       nu.style.transform='translate('+R2.x+'px,'+R2.y+'px) scale('+(R2.w/W)+','+(R2.h/H)+')';nu.style.borderRadius=(20*W/R2.w)+'px';reflow(nu);
       nu.style.transition='opacity 260ms ease,transform '+D+'ms '+XE+',border-radius '+D+'ms '+XE;
@@ -410,15 +437,17 @@
   function show(id,a){
     var s=B.screens[id];if(!s)return;
     var wasXR=!!(curEl&&curEl.querySelector('.scr-root'));
-    if(s.name==='IN'&&curEl&&!wasXR){var c=autoDest(id);if(c&&B.screens[c.dest]){xrShow(c.dest,'in');return;}}
-    if(s.name==='BACK'&&wasXR){var c2=autoDest(id);if(c2&&B.screens[c2.dest]){xrShow(c2.dest,'out');return;}}
+    if(s.name==='IN'&&curEl){var c=autoDest(id);if(c&&B.screens[c.dest]){if(HOLD){clearTimeout(HOLD.t);HOLD.nu.remove();curEl=HOLD.old;HOLD=null;wasXR=true;}xrShow(c.dest,wasXR?'xx':'in');return;}}
+    var os0=curEl&&B.screens[curEl.getAttribute('data-id')];
+    if(wasXR&&/scr-root/.test(s.html)&&os0&&!(os0.name===s.name&&os0.mode!==s.mode)&&s.name!=='BACK'){xrShow(id,'xx');return;}
+    if(s.name==='BACK'&&wasXR){var c2=autoDest(id);if(c2&&B.screens[c2.dest]){holdOut(c2.dest);return;}}
     timers.forEach(clearTimeout);timers=[];
     while(ovs.length)closeOv(null,true);
     // pantallas que aún se estaban yendo: fuera de inmediato
     [].slice.call(stage.children).forEach(function(c){if(c!==curEl&&!c.classList.contains('ovl'))c.remove()});
     var old=curEl, nu=html(s.html);
     cur=id;curEl=nu;fit();
-    if(old)carry(old,nu);
+    if(old)carry(old,nu);dedupeFab(nu);
     var t=tr(a);
     // cambio de modo de color en la misma pantalla: fundido suave, sin movimiento
     var os_=old&&B.screens[old.getAttribute('data-id')];
