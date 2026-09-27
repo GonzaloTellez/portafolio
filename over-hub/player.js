@@ -275,7 +275,7 @@
   // la instancia puede estar escalada (p. ej. en VR la interfaz es más chica): la variante se escala igual
   function scaleOf(box){var c=box.getAttribute('data-c'),cs=B.csize[c];if(!cs)return 1;var w=num(box.dataset.bw||box.style.width),h=num(box.style.height),k=w/cs[0],ky=h/cs[1];
     // instancia redimensionada (no escalada): otro ancho con el mismo alto -> la variante conserva su escala
-    if(h&&Math.abs(k-ky)>0.03)return 1;
+    if(h&&Math.abs(k-ky)>0.03)k=ky;
     return Math.abs(k-1)<0.02?1:k}
   function scaled(h,k){return k===1?h:h.replace(/(-?\d*\.?\d+)px/g,function(m,n){return (parseFloat(n)*k).toFixed(2)+'px'})}
   function build(box,d){
@@ -285,8 +285,8 @@
     overrides(orig,src,k);
     // instancia redimensionada: la variante del mismo tamaño de base toma el tamaño de la instancia
     var oc=B.csize[(orig._pristine||orig).getAttribute('data-c')],dc=B.csize[d];
-    if(k===1&&oc&&dc){var bw=num((orig._pristine||orig).style.width),bh=num((orig._pristine||orig).style.height);
-      if(Math.abs(dc[0]-oc[0])<1&&Math.abs(bw-oc[0])>1)src.style.width=bw+'px';if(Math.abs(dc[1]-oc[1])<1&&Math.abs(bh-oc[1])>1)src.style.height=bh+'px';}
+    if(oc&&dc){var bw=num((orig._pristine||orig).style.width),bh=num((orig._pristine||orig).style.height);
+      if(Math.abs(dc[0]-oc[0])<1&&Math.abs(bw-oc[0]*k)>1)src.style.width=bw+'px';if(Math.abs(dc[1]-oc[1])<1&&Math.abs(bh-oc[1]*k)>1)src.style.height=bh+'px';}
     var P=pos(box);
     // la variante toma la esquina de la instancia, como en Figma
     src.style.left=P.x+'px';src.style.top=P.y+'px';
@@ -420,6 +420,9 @@
     cur=id;curEl=nu;fit();
     if(old)carry(old,nu);
     var t=tr(a);
+    // cambio de modo de color en la misma pantalla: fundido suave, sin movimiento
+    var os_=old&&B.screens[old.getAttribute('data-id')];
+    if(os_&&os_.name===s.name&&os_.mode!==s.mode)t={type:'DISSOLVE',ms:450,ease:'cubic-bezier(.4,0,.2,1)'};
     var osc=old&&old.querySelector('.scr-root'),dx=0,dy=0;
     if(osc){dx=osc.scrollLeft-num(osc.getAttribute('data-sx'));dy=osc.scrollTop-num(osc.getAttribute('data-sy'));}
     var keepScroll=function(){home(nu,dx,dy);if(!old)return;var os=[].slice.call(old.querySelectorAll('.scr:not(.scr-root)')),ns=[].slice.call(nu.querySelectorAll('.scr:not(.scr-root)'));
